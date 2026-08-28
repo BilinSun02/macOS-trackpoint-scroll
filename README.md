@@ -1,6 +1,6 @@
 # macOS TrackPoint Scroll
 
-A macOS port of the TrackPoint middle-button scrolling behavior from [`libinput-trackpoint-scroll`](https://github.com/BilinSun02/libinput-trackpoint-scroll), using the same pinned [`trackpoint-scroll-core`](https://github.com/BilinSun02/trackpoint-scroll-core) reconstruction/transfer engine.
+A macOS port of the TrackPoint middle-button scrolling behavior from [`libinput-trackpoint-scroll`](git@github.com:BilinSun02/libinput-trackpoint-scroll.git), using the same pinned [`trackpoint-scroll-core`](git@github.com:BilinSun02/trackpoint-scroll-core.git) reconstruction/transfer engine.
 
 The tested adapter from the Linux project is matched directly by USB/HID identity:
 
@@ -8,20 +8,22 @@ The tested adapter from the Linux project is matched directly by USB/HID identit
 - product: `0x0001`
 - name: `xy_3dg12 xy_3dg12 USB RF Adapter`
 
-macOS may initially expose it as an ordinary generic mouse. That is **not a blocker** here: the program discovers the physical HID device directly with IOKit instead of depending on an operating-system "pointing stick" classification. In normal mode, native cursor motion remains handled by macOS and a Quartz event tap suppresses it while the TrackPoint middle button is held; raw TrackPoint deltas are sent through `trackpoint-scroll-core` and re-emitted as continuous scroll events.
+macOS may initially expose it as an ordinary generic mouse. That is **not a blocker** here: the program discovers the physical HID device directly with IOKit instead of depending on an operating-system "pointing stick" classification. In normal mode macOS still owns the ordinary mouse path; raw TrackPoint deltas are sent through `trackpoint-scroll-core` and re-emitted as continuous scroll events.
 
-An optional `--seize` mode is also provided. It opens the matching HID device with `kIOHIDOptionsTypeSeizeDevice`, preventing the generic mouse stack from consuming it. In seize mode this program must forward ordinary pointer motion/buttons itself, so normal mode is preferred unless duplicate events or another host-specific issue requires exclusive ownership.
+A Quartz event tap is used to suppress application-visible middle-click/drag events, but that alone cannot stop WindowServer from moving the system cursor: filtering a mouse-move event prevents applications from receiving it after the hardware movement has already affected cursor position. Normal mode therefore pins the cursor to its gesture-start position while the target device's raw middle button is held. The pinning helper is device-specific and matches the same USB/HID adapter rather than reacting to arbitrary mice.
+
+An optional `--seize` mode is also provided. It opens the matching HID device with `kIOHIDOptionsTypeSeizeDevice`, preventing the generic mouse stack from consuming it. In seize mode this program must forward ordinary pointer motion/buttons itself, so normal mode is preferred unless a host-specific issue requires exclusive ownership.
 
 ## Status
 
-Initial macOS port. The architecture and core integration are in place, but hardware validation still needs to be performed on the target Mac/adapter.
+Hardware validation on the target adapter confirms that raw input and synthesized scrolling work on macOS. Cursor pinning during the middle-button gesture is the current normal-mode strategy for preventing simultaneous pointer motion.
 
 ## Build
 
 Requires macOS, Xcode Command Line Tools, and Git.
 
 ```sh
-git clone --recurse-submodules https://github.com/BilinSun02/macOS-trackpoint-scroll.git
+git clone --recurse-submodules git@github.com:BilinSun02/macOS-trackpoint-scroll.git
 cd macOS-trackpoint-scroll
 make
 ```
@@ -63,7 +65,7 @@ While the target device's middle button is held:
 3. the core reconstructs sparse low-force reports and applies the hyperbolic transfer profile used by the Linux integration;
 4. a 2 ms logical timer drains core output;
 5. Quartz continuous pixel-scroll events are posted;
-6. native mouse movement caused by the same physical motion is suppressed in normal mode.
+6. the cursor is pinned to its gesture-start position so the same physical TrackPoint motion does not move the pointer.
 
 The default core/profile settings mirror the Linux configuration:
 
@@ -83,7 +85,7 @@ macOS scroll units are not identical to libinput scroll units, so `--scroll-scal
 
 ## Caveats
 
-Normal mode's event tap cannot obtain a stable USB vendor/product identity from a Quartz mouse event. Device identity is therefore established on the raw IOKit side, and pointer-motion suppression is active only while that device's raw middle-button state says a scroll gesture is active. If you move a second mouse at exactly the same time while holding the TrackPoint middle button, its Quartz motion may also be suppressed. Use `--seize` if strict per-device isolation is more important than preserving the native macOS mouse pipeline outside the gesture.
+Normal mode deliberately leaves the generic macOS mouse path active outside the scroll gesture so ordinary pointer acceleration and button handling stay native. During a middle-button scroll gesture, cursor position is repeatedly restored with Core Graphics while the raw HID reports continue feeding the scroll engine. There may be a very small visual jitter if WindowServer advances the cursor between pinning ticks; if that proves noticeable, the next escalation is dynamic/exclusive HID ownership rather than further Quartz event filtering.
 
 In `--seize` mode, system mouse acceleration is bypassed for forwarded pointer motion because Quartz receives synthesized cursor movement rather than the original HID event. This mode exists primarily as a robust ownership fallback.
 
