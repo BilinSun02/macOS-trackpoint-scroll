@@ -6,6 +6,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #define CURSOR_PIN_VENDOR_ID  0x5859
 #define CURSOR_PIN_PRODUCT_ID 0x0001
