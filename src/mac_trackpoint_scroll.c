@@ -35,6 +35,8 @@ struct app {
     double scroll_scale;
     double x_sign;
     double y_sign;
+    double point_remainder_x;
+    double point_remainder_y;
 
     bool seize;
     bool verbose;
@@ -229,28 +231,66 @@ device_removed(void *context, IOReturn result, void *sender,
     app->middle_down = false;
     app->left_down = false;
     app->right_down = false;
+    app->point_remainder_x = 0.0;
+    app->point_remainder_y = 0.0;
     (void)tpsc_engine_end(app->engine, now_us());
     fprintf(stderr, "trackpoint: target HID device removed\n");
 }
 
+static int32_t
+take_point_delta(double value, double *remainder)
+{
+    double total = *remainder + value;
+    double integral = trunc(total);
+
+    if (integral > (double)INT32_MAX)
+        integral = (double)INT32_MAX;
+    else if (integral < (double)INT32_MIN)
+        integral = (double)INT32_MIN;
+
+    *remainder = total - integral;
+    return (int32_t)integral;
+}
+
 static void
-post_scroll(double vertical, double horizontal)
+post_scroll(struct app *app, double vertical, double horizontal)
 {
     CGEventRef event;
+    int32_t point_vertical;
+    int32_t point_horizontal;
 
     if (vertical == 0.0 && horizontal == 0.0)
         return;
 
+    /*
+     * CoreGraphics exposes the same smooth-scroll displacement in multiple
+     * representations. Some applications consume the 16.16 fixed-point fields,
+     * while others consume the integer pixel PointDelta fields populated by
+     * CGEventCreateScrollWheelEvent(). Preserve sub-pixel core output in the
+     * fixed-point representation and carry fractional pixels across ticks for
+     * the PointDelta representation instead of rounding every 2 ms tick away.
+     */
+    point_vertical = take_point_delta(vertical, &app->point_remainder_y);
+    point_horizontal = take_point_delta(horizontal, &app->point_remainder_x);
+
     event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitPixel,
-                                          2, 0, 0);
+                                          2, point_vertical, point_horizontal);
     if (!event)
         return;
 
     CGEventSetIntegerValueField(event, kCGScrollWheelEventIsContinuous, 1);
+
+    /* Set the precise forms after construction; setting DeltaAxis can cause
+     * CoreGraphics to recalculate PointDelta/FixedPtDelta internally. */
     CGEventSetDoubleValueField(event, kCGScrollWheelEventFixedPtDeltaAxis1,
                                vertical);
     CGEventSetDoubleValueField(event, kCGScrollWheelEventFixedPtDeltaAxis2,
                                horizontal);
+    CGEventSetIntegerValueField(event, kCGScrollWheelEventPointDeltaAxis1,
+                                point_vertical);
+    CGEventSetIntegerValueField(event, kCGScrollWheelEventPointDeltaAxis2,
+                                point_horizontal);
+
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 }
@@ -317,6 +357,8 @@ middle_transition(struct app *app, bool down, uint64_t time_us)
         return;
 
     app->middle_down = down;
+    app->point_remainder_x = 0.0;
+    app->point_remainder_y = 0.0;
     if (down)
         status = tpsc_engine_begin(app->engine, time_us);
     else
@@ -441,7 +483,7 @@ tick_callback(CFRunLoopTimerRef timer, void *context)
     if (output.x != 0.0 || output.y != 0.0) {
         double horizontal = app->x_sign * output.x * app->scroll_scale;
         double vertical = app->y_sign * output.y * app->scroll_scale;
-        post_scroll(vertical, horizontal);
+        post_scroll(app, vertical, horizontal);
         if (app->verbose)
             fprintf(stderr, "trackpoint: scroll x=%g y=%g\n",
                     horizontal, vertical);
