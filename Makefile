@@ -4,7 +4,7 @@ CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Icore/include
 LDFLAGS += -framework IOKit -framework CoreFoundation -framework ApplicationServices
 
 BIN := build/macOS-trackpoint-scroll
-SRC := src/mac_trackpoint_scroll.c core/src/engine.c core/src/profiles.c
+SRC := src/mac_trackpoint_scroll.c src/cursor_pin.c core/src/engine.c core/src/profiles.c
 
 .PHONY: all clean check-submodule
 
