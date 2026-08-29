@@ -38,6 +38,7 @@ struct app {
     double y_sign;
     double point_remainder_x;
     double point_remainder_y;
+    CGPoint scroll_anchor;
 
     bool seize;
     bool verbose;
@@ -46,6 +47,7 @@ struct app {
     bool left_down;
     bool right_down;
     bool target_present;
+    bool have_scroll_anchor;
 };
 
 static mach_timebase_info_data_t g_timebase;
@@ -62,6 +64,18 @@ static uint64_t
 now_us(void)
 {
     return mach_ticks_to_us(mach_absolute_time());
+}
+
+static bool
+current_cursor_position(CGPoint *position)
+{
+    CGEventRef event = CGEventCreate(NULL);
+
+    if (!event)
+        return false;
+    *position = CGEventGetLocation(event);
+    CFRelease(event);
+    return true;
 }
 
 static void
@@ -248,6 +262,7 @@ device_removed(void *context, IOReturn result, void *sender,
     app->middle_down = false;
     app->left_down = false;
     app->right_down = false;
+    app->have_scroll_anchor = false;
     app->point_remainder_x = 0.0;
     app->point_remainder_y = 0.0;
     (void)tpsc_engine_end(app->engine, now_us());
@@ -365,10 +380,13 @@ middle_transition(struct app *app, bool down, uint64_t time_us)
     app->middle_down = down;
     app->point_remainder_x = 0.0;
     app->point_remainder_y = 0.0;
-    if (down)
+    if (down) {
+        app->have_scroll_anchor = current_cursor_position(&app->scroll_anchor);
         status = tpsc_engine_begin(app->engine, time_us);
-    else
+    } else {
+        app->have_scroll_anchor = false;
         status = tpsc_engine_end(app->engine, time_us);
+    }
 
     if (status != TPSC_OK)
         fprintf(stderr, "trackpoint: core gesture transition failed: %d\n", status);
@@ -496,6 +514,15 @@ tick_callback(CFRunLoopTimerRef timer, void *context)
     }
 }
 
+static bool
+is_mouse_motion_event(CGEventType type)
+{
+    return type == kCGEventMouseMoved ||
+           type == kCGEventLeftMouseDragged ||
+           type == kCGEventRightMouseDragged ||
+           type == kCGEventOtherMouseDragged;
+}
+
 static CGEventRef
 event_tap_callback(CGEventTapProxy proxy, CGEventType type,
                    CGEventRef event, void *context)
@@ -521,12 +548,21 @@ event_tap_callback(CGEventTapProxy proxy, CGEventType type,
             return NULL;
     }
 
-    if (app->middle_down &&
-        (type == kCGEventMouseMoved ||
-         type == kCGEventLeftMouseDragged ||
-         type == kCGEventRightMouseDragged ||
-         type == kCGEventOtherMouseDragged))
-        return NULL;
+    if (app->middle_down && is_mouse_motion_event(type)) {
+        /*
+         * Dropping a HID-level Quartz mouse event did not prevent WindowServer
+         * from advancing the visible cursor on this adapter. Rewriting the
+         * event in place avoids generating a second synthetic mouse event (and
+         * therefore avoids Quartz's local-event suppression delay): applications
+         * see a zero-delta event whose absolute position remains at the gesture
+         * anchor.
+         */
+        CGEventSetIntegerValueField(event, kCGMouseEventDeltaX, 0);
+        CGEventSetIntegerValueField(event, kCGMouseEventDeltaY, 0);
+        if (app->have_scroll_anchor)
+            CGEventSetLocation(event, app->scroll_anchor);
+        return event;
+    }
 
     return event;
 }
