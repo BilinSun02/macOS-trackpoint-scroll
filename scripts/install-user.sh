@@ -2,46 +2,77 @@
 set -eu
 
 LABEL="io.github.bilinsun02.macos-trackpoint-scroll"
-SOURCE_BIN="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/build/macOS-trackpoint-scroll"
+BUNDLE_ID="$LABEL"
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+SOURCE_BIN="$ROOT/build/macOS-trackpoint-scroll"
+SOURCE_LAUNCHER="$ROOT/build/macOS-trackpoint-scroll-launcher"
+APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
+CONTENTS_DIR="$APP_DIR/Contents"
+MACOS_DIR="$CONTENTS_DIR/MacOS"
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
+LAUNCHER_BIN="$MACOS_DIR/macOS-trackpoint-scroll"
+LAUNCHER_MARKER="$RESOURCES_DIR/stable-launcher-v1"
 INSTALL_DIR="$HOME/Library/Application Support/macOS-trackpoint-scroll"
 INSTALL_BIN="$INSTALL_DIR/macOS-trackpoint-scroll"
-OLD_APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
 CONFIG_DIR="$HOME/.config"
 CONFIG_PATH="$CONFIG_DIR/macOS-trackpoint-scroll.conf"
-EXAMPLE_CONFIG="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/config/trackpoint-scroll.conf.example"
+EXAMPLE_CONFIG="$ROOT/config/trackpoint-scroll.conf.example"
 AGENT_DIR="$HOME/Library/LaunchAgents"
 PLIST="$AGENT_DIR/$LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/macOS-trackpoint-scroll"
 UID_NUM="$(id -u)"
+NEW_LAUNCHER=0
 
-if [ ! -x "$SOURCE_BIN" ]; then
-    echo "error: $SOURCE_BIN is missing; run make first" >&2
+if [ ! -x "$SOURCE_BIN" ] || [ ! -x "$SOURCE_LAUNCHER" ]; then
+    echo "error: build products are missing; run make first" >&2
     exit 1
 fi
 
-mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR"
+mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR" "$HOME/Applications"
 
-# Remove the temporary app-bundle installation used while diagnosing TCC.
-rm -rf "$OLD_APP_DIR"
-
+# The worker is deliberately outside the signed app. It may change on every
+# development install without changing the TCC-facing application identity.
 cp "$SOURCE_BIN" "$INSTALL_BIN"
 chmod 755 "$INSTALL_BIN"
 
-# An ordinary ad-hoc signature gets a designated requirement tied to the exact
-# build, so TCC/Input Monitoring can treat every rebuild as different code.
-# Give this private per-user utility an explicit stable designated requirement.
-# This is intentionally not distribution-grade identity security: another local
-# binary could deliberately copy the same requirement.
-DR="designated => identifier \"$LABEL\""
-codesign --force --sign - \
-    --identifier "$LABEL" \
-    --requirements "=$DR" \
-    "$INSTALL_BIN"
+# Create the tiny TCC-facing launcher only once. Subsequent installs leave the
+# entire signed app bundle byte-for-byte alone, preserving its code identity.
+if [ ! -f "$LAUNCHER_MARKER" ]; then
+    NEW_LAUNCHER=1
+    rm -rf "$APP_DIR"
+    mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
+    cp "$SOURCE_LAUNCHER" "$LAUNCHER_BIN"
+    chmod 755 "$LAUNCHER_BIN"
 
-# Fail installation if signing did not produce the expected stable DR.
-codesign --verify --strict "$INSTALL_BIN"
-codesign --display --requirements - "$INSTALL_BIN" 2>&1 | \
-    grep -F "designated => identifier \"$LABEL\"" >/dev/null
+    cat >"$CONTENTS_DIR/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>$BUNDLE_ID</string>
+    <key>CFBundleName</key>
+    <string>macOS-trackpoint-scroll</string>
+    <key>CFBundleDisplayName</key>
+    <string>macOS-trackpoint-scroll</string>
+    <key>CFBundleExecutable</key>
+    <string>macOS-trackpoint-scroll</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+</dict>
+</plist>
+EOF
+    : >"$LAUNCHER_MARKER"
+    plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
+    codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP_DIR"
+    codesign --verify --deep --strict "$APP_DIR"
+fi
 
 if [ ! -e "$CONFIG_PATH" ]; then
     cp "$EXAMPLE_CONFIG" "$CONFIG_PATH"
@@ -51,18 +82,14 @@ fi
 
 cat >"$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0.dtd" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>$LABEL</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$INSTALL_BIN</string>
-        <string>--seize</string>
-        <string>--verbose</string>
-        <string>--config</string>
-        <string>$CONFIG_PATH</string>
+        <string>$LAUNCHER_BIN</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -79,21 +106,25 @@ cat >"$PLIST" <<EOF
 EOF
 
 plutil -lint "$PLIST" >/dev/null
-
 launchctl bootout "gui/$UID_NUM" "$PLIST" >/dev/null 2>&1 || true
+
+if [ "$NEW_LAUNCHER" -eq 1 ]; then
+    echo "requesting Input Monitoring for the stable launcher..."
+    echo "macOS may show a permission prompt; approve macOS-trackpoint-scroll."
+    open -W "$APP_DIR" --args --request-input-monitoring || true
+fi
+
 launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart -k "gui/$UID_NUM/$LABEL"
 
 echo "installed and started $LABEL"
-echo "binary: $INSTALL_BIN"
-echo "config: $CONFIG_PATH"
-echo "logs:   $LOG_DIR"
+echo "stable launcher: $APP_DIR"
+echo "worker:          $INSTALL_BIN"
+echo "config:          $CONFIG_PATH"
+echo "logs:            $LOG_DIR"
 echo
-echo "The executable uses a stable explicit designated requirement for TCC."
-echo "Because this install migrates away from the temporary .app identity, macOS"
-echo "may require one final Input Monitoring authorization for:"
-echo "  $INSTALL_BIN"
-echo "Subsequent rebuilds should retain the same designated requirement."
+echo "The launcher is intentionally not replaced on ordinary reinstalls."
+echo "Worker updates therefore do not change the Input Monitoring identity."
 echo
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
