@@ -41,7 +41,7 @@ parse_bool(const char *s, bool *out)
 }
 
 static int
-parse_positive_double(const char *s, double *out)
+parse_nonnegative_double(const char *s, double *out)
 {
     char *end = NULL;
     double value;
@@ -49,9 +49,17 @@ parse_positive_double(const char *s, double *out)
     errno = 0;
     value = strtod(s, &end);
     if (errno != 0 || end == s || *trim(end) != '\0' ||
-        !isfinite(value) || value <= 0.0)
+        !isfinite(value) || value < 0.0)
         return -1;
     *out = value;
+    return 0;
+}
+
+static int
+parse_positive_double(const char *s, double *out)
+{
+    if (parse_nonnegative_double(s, out) != 0 || *out <= 0.0)
+        return -1;
     return 0;
 }
 
@@ -62,6 +70,8 @@ macos_trackpoint_config_defaults(struct macos_trackpoint_config *cfg)
     cfg->scroll_scale = 8.0;
     cfg->suppress_middle_click = true;
     cfg->pointer_speed = 1.0;
+    cfg->pointer_acceleration = 0.0;
+    cfg->pointer_acceleration_velocity = 0.10;
 }
 
 const char *
@@ -138,6 +148,13 @@ macos_trackpoint_config_load(struct macos_trackpoint_config *cfg,
                 goto invalid_value;
         } else if (strcmp(key, "pointer_speed") == 0) {
             if (parse_positive_double(value, &cfg->pointer_speed) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "pointer_acceleration") == 0) {
+            if (parse_nonnegative_double(value, &cfg->pointer_acceleration) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "pointer_acceleration_velocity") == 0) {
+            if (parse_positive_double(value,
+                                      &cfg->pointer_acceleration_velocity) != 0)
                 goto invalid_value;
         } else {
             fprintf(stderr, "trackpoint: %s:%lu: unknown key '%s'\n",
