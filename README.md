@@ -2,7 +2,7 @@
 
 A macOS port of [`libinput-trackpoint-scroll`](git@github.com:BilinSun02/libinput-trackpoint-scroll.git), using the same pinned [`trackpoint-scroll-core`](git@github.com:BilinSun02/trackpoint-scroll-core.git) reconstruction/transfer engine.
 
-Current stable version: **1.0.1**.
+Current stable version: **1.0.2**.
 
 Tested adapter:
 
@@ -20,6 +20,8 @@ The hardware-validated path uses exclusive HID ownership (`--seize`). The daemon
 - keeps scrolling on raw TrackPoint deltas, independent of the pointer curve.
 
 The adapter reports X and Y as separate HID element callbacks. `event_shim.c` keeps a short cache of the most recently posted synthetic cursor position so split-axis reports compose instead of overwriting one another. Synthetic positions are projected onto active display geometry before posting/caching so sustained motion into a screen edge cannot accumulate invisible off-screen overshoot.
+
+Synthetic button events also carry Quartz click-state and event-number bookkeeping, so double-click, triple-click, and click-drag behavior matches ordinary macOS mouse events.
 
 Pointer acceleration is applied before Quartz event creation, using the original `IOHIDValueGetTimeStamp()` timestamps. The default `pointer_acceleration=0` is a linear/no-acceleration path.
 
