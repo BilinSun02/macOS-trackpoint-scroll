@@ -131,6 +131,13 @@ EOF
 
 plutil -lint "$PLIST" >/dev/null
 launchctl bootout "gui/$UID_NUM" "$PLIST" >/dev/null 2>&1 || true
+
+# Run the exact signed app through LaunchServices once. The IOHID permission
+# requester linked into the daemon executes before main(); --help then exits
+# immediately without opening or seizing the TrackPoint.
+echo "checking/requesting IOHID Input Monitoring access..."
+open -W -n "$APP_DIR" --args --help || true
+
 launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart -k "gui/$UID_NUM/$LABEL"
 
@@ -140,10 +147,9 @@ echo "binary:      $INSTALL_BIN"
 echo "config:      $CONFIG_PATH"
 echo "logs:        $LOG_DIR"
 echo
-echo "If Input Monitoring is not yet authorized, add this application in:"
-echo "  System Settings > Privacy & Security > Input Monitoring"
-echo "  $APP_DIR"
+echo "If macOS prompted for Input Monitoring, approve macOS-trackpoint-scroll."
+echo "After approving, restart with:"
+echo "  launchctl kickstart -k gui/$UID_NUM/$LABEL"
 echo
-echo "Once authorized, future builds signed with the same identity should retain it."
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
