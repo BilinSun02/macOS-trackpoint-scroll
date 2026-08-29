@@ -5,15 +5,11 @@ LABEL="io.github.bilinsun02.macos-trackpoint-scroll"
 BUNDLE_ID="$LABEL"
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 SOURCE_BIN="$ROOT/build/macOS-trackpoint-scroll"
-SOURCE_LAUNCHER="$ROOT/build/macOS-trackpoint-scroll-launcher"
 APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
-RESOURCES_DIR="$CONTENTS_DIR/Resources"
-LAUNCHER_BIN="$MACOS_DIR/macOS-trackpoint-scroll"
-LAUNCHER_MARKER="$RESOURCES_DIR/stable-launcher-v1"
-INSTALL_DIR="$HOME/Library/Application Support/macOS-trackpoint-scroll"
-INSTALL_BIN="$INSTALL_DIR/macOS-trackpoint-scroll"
+INSTALL_BIN="$MACOS_DIR/macOS-trackpoint-scroll"
+LEGACY_INSTALL_DIR="$HOME/Library/Application Support/macOS-trackpoint-scroll"
 CONFIG_DIR="$HOME/.config"
 CONFIG_PATH="$CONFIG_DIR/macOS-trackpoint-scroll.conf"
 EXAMPLE_CONFIG="$ROOT/config/trackpoint-scroll.conf.example"
@@ -21,30 +17,47 @@ AGENT_DIR="$HOME/Library/LaunchAgents"
 PLIST="$AGENT_DIR/$LABEL.plist"
 LOG_DIR="$HOME/Library/Logs/macOS-trackpoint-scroll"
 UID_NUM="$(id -u)"
-NEW_LAUNCHER=0
 
-if [ ! -x "$SOURCE_BIN" ] || [ ! -x "$SOURCE_LAUNCHER" ]; then
-    echo "error: build products are missing; run make first" >&2
+if [ ! -x "$SOURCE_BIN" ]; then
+    echo "error: $SOURCE_BIN is missing; run make first" >&2
     exit 1
 fi
 
-mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR" "$HOME/Applications"
+# TCC does not preserve privacy grants reliably across ad-hoc-signed rebuilds.
+# Use one persistent certificate for every development build. An explicit
+# identity can be supplied via MACOS_TRACKPOINT_CODESIGN_IDENTITY; otherwise
+# use the first valid code-signing identity in the user's keychains.
+SIGN_IDENTITY="${MACOS_TRACKPOINT_CODESIGN_IDENTITY:-}"
+if [ -z "$SIGN_IDENTITY" ]; then
+    SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | \
+        awk '/^[[:space:]]*[0-9]+\)/ { print $2; exit }')"
+fi
 
-# The worker is deliberately outside the signed app. It may change on every
-# development install without changing the TCC-facing application identity.
+if [ -z "$SIGN_IDENTITY" ]; then
+    cat >&2 <<'EOF'
+error: no persistent macOS code-signing identity is available.
+
+Ad-hoc signing is intentionally not used because macOS TCC treats each rebuild
+as a different program and forgets Input Monitoring authorization.
+
+If Xcode already has an Apple Development certificate, this command should list it:
+  security find-identity -v -p codesigning
+
+Otherwise create an Apple Development certificate in Xcode:
+  Xcode > Settings > Accounts > Manage Certificates > + > Apple Development
+
+Then run make install-user again.
+EOF
+    exit 1
+fi
+
+mkdir -p "$MACOS_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR" "$HOME/Applications"
+rm -rf "$LEGACY_INSTALL_DIR"
+
 cp "$SOURCE_BIN" "$INSTALL_BIN"
 chmod 755 "$INSTALL_BIN"
 
-# Create the tiny TCC-facing launcher only once. Subsequent installs leave the
-# entire signed app bundle byte-for-byte alone, preserving its code identity.
-if [ ! -f "$LAUNCHER_MARKER" ]; then
-    NEW_LAUNCHER=1
-    rm -rf "$APP_DIR"
-    mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
-    cp "$SOURCE_LAUNCHER" "$LAUNCHER_BIN"
-    chmod 755 "$LAUNCHER_BIN"
-
-    cat >"$CONTENTS_DIR/Info.plist" <<EOF
+cat >"$CONTENTS_DIR/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -68,11 +81,18 @@ if [ ! -f "$LAUNCHER_MARKER" ]; then
 </dict>
 </plist>
 EOF
-    : >"$LAUNCHER_MARKER"
-    plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
-    codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP_DIR"
-    codesign --verify --deep --strict "$APP_DIR"
-fi
+
+plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
+
+# The actual TrackPoint process carries the stable signing identity. Rebuilding
+# changes its code hash, but not its designated requirement (signer + bundle ID).
+codesign --force --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP_DIR"
+codesign --verify --strict --verbose=2 "$APP_DIR"
+
+echo "code-signing identity:"
+codesign --display --verbose=1 "$APP_DIR" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier)=' || true
+echo "designated requirement:"
+codesign --display --requirements - "$APP_DIR" 2>&1 | sed -n 's/^designated => /  /p'
 
 if [ ! -e "$CONFIG_PATH" ]; then
     cp "$EXAMPLE_CONFIG" "$CONFIG_PATH"
@@ -89,7 +109,11 @@ cat >"$PLIST" <<EOF
     <string>$LABEL</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$LAUNCHER_BIN</string>
+        <string>$INSTALL_BIN</string>
+        <string>--seize</string>
+        <string>--verbose</string>
+        <string>--config</string>
+        <string>$CONFIG_PATH</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -107,24 +131,19 @@ EOF
 
 plutil -lint "$PLIST" >/dev/null
 launchctl bootout "gui/$UID_NUM" "$PLIST" >/dev/null 2>&1 || true
-
-if [ "$NEW_LAUNCHER" -eq 1 ]; then
-    echo "requesting Input Monitoring for the stable launcher..."
-    echo "macOS may show a permission prompt; approve macOS-trackpoint-scroll."
-    open -W "$APP_DIR" --args --request-input-monitoring || true
-fi
-
 launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart -k "gui/$UID_NUM/$LABEL"
 
 echo "installed and started $LABEL"
-echo "stable launcher: $APP_DIR"
-echo "worker:          $INSTALL_BIN"
-echo "config:          $CONFIG_PATH"
-echo "logs:            $LOG_DIR"
+echo "application: $APP_DIR"
+echo "binary:      $INSTALL_BIN"
+echo "config:      $CONFIG_PATH"
+echo "logs:        $LOG_DIR"
 echo
-echo "The launcher is intentionally not replaced on ordinary reinstalls."
-echo "Worker updates therefore do not change the Input Monitoring identity."
+echo "If Input Monitoring is not yet authorized, add this application in:"
+echo "  System Settings > Privacy & Security > Input Monitoring"
+echo "  $APP_DIR"
 echo
+echo "Once authorized, future builds signed with the same identity should retain it."
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
