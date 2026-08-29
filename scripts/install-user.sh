@@ -2,9 +2,12 @@
 set -eu
 
 LABEL="io.github.bilinsun02.macos-trackpoint-scroll"
+BUNDLE_ID="$LABEL"
 SOURCE_BIN="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/build/macOS-trackpoint-scroll"
-INSTALL_DIR="$HOME/Library/Application Support/macOS-trackpoint-scroll"
-INSTALL_BIN="$INSTALL_DIR/macOS-trackpoint-scroll"
+APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
+CONTENTS_DIR="$APP_DIR/Contents"
+MACOS_DIR="$CONTENTS_DIR/MacOS"
+INSTALL_BIN="$MACOS_DIR/macOS-trackpoint-scroll"
 CONFIG_DIR="$HOME/.config"
 CONFIG_PATH="$CONFIG_DIR/macOS-trackpoint-scroll.conf"
 EXAMPLE_CONFIG="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/config/trackpoint-scroll.conf.example"
@@ -18,12 +21,41 @@ if [ ! -x "$SOURCE_BIN" ]; then
     exit 1
 fi
 
-mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR"
+mkdir -p "$MACOS_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR"
 
 cp "$SOURCE_BIN" "$INSTALL_BIN"
 chmod 755 "$INSTALL_BIN"
 
-codesign --force --sign - "$INSTALL_BIN" >/dev/null 2>&1 || true
+cat >"$CONTENTS_DIR/Info.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>$BUNDLE_ID</string>
+    <key>CFBundleName</key>
+    <string>macOS-trackpoint-scroll</string>
+    <key>CFBundleDisplayName</key>
+    <string>macOS-trackpoint-scroll</string>
+    <key>CFBundleExecutable</key>
+    <string>macOS-trackpoint-scroll</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>LSBackgroundOnly</key>
+    <true/>
+</dict>
+</plist>
+EOF
+
+plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
+
+# Sign the application as one unit so Input Monitoring has a stable bundle
+# identity instead of a repeatedly replaced loose executable.
+codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP_DIR" >/dev/null 2>&1 || true
 
 if [ ! -e "$CONFIG_PATH" ]; then
     cp "$EXAMPLE_CONFIG" "$CONFIG_PATH"
@@ -67,12 +99,15 @@ launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart -k "gui/$UID_NUM/$LABEL"
 
 echo "installed and started $LABEL"
-echo "binary: $INSTALL_BIN"
-echo "config: $CONFIG_PATH"
-echo "logs:   $LOG_DIR"
+echo "application: $APP_DIR"
+echo "binary:      $INSTALL_BIN"
+echo "config:      $CONFIG_PATH"
+echo "logs:        $LOG_DIR"
 echo
-echo "If macOS asks for Input Monitoring or Accessibility permission, grant it to:"
-echo "  $INSTALL_BIN"
+echo "If macOS asks for Input Monitoring permission, grant it to:"
+echo "  macOS-trackpoint-scroll"
+echo "from the application bundle at:"
+echo "  $APP_DIR"
 echo
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
