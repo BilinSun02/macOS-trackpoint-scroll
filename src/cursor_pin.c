@@ -8,8 +8,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "cursor_pin.h"
-
 #define CURSOR_PIN_VENDOR_ID  0x5859
 #define CURSOR_PIN_PRODUCT_ID 0x0001
 #define CURSOR_PIN_MIDDLE_BUTTON_USAGE 3
@@ -19,13 +17,6 @@ static CFRunLoopTimerRef g_pin_timer;
 static bool g_pin_middle_down;
 static bool g_pin_have_anchor;
 static CGPoint g_pin_anchor;
-
-void
-cursor_pin_release_now(void)
-{
-    g_pin_middle_down = false;
-    g_pin_have_anchor = false;
-}
 
 static CFMutableDictionaryRef
 cursor_pin_matching_dictionary(void)
@@ -113,7 +104,7 @@ cursor_pin_input_value(void *context, IOReturn result, void *sender,
     if (down)
         g_pin_have_anchor = cursor_pin_get_position(&g_pin_anchor);
     else
-        cursor_pin_release_now();
+        g_pin_have_anchor = false;
 }
 
 static void

@@ -15,7 +15,6 @@
 #include <string.h>
 
 #include "config.h"
-#include "cursor_pin.h"
 #include "trackpoint_scroll/engine.h"
 #include "trackpoint_scroll/profiles.h"
 
@@ -251,7 +250,6 @@ device_removed(void *context, IOReturn result, void *sender,
     app->right_down = false;
     app->point_remainder_x = 0.0;
     app->point_remainder_y = 0.0;
-    cursor_pin_release_now();
     (void)tpsc_engine_end(app->engine, now_us());
     fprintf(stderr, "trackpoint: target HID device removed\n");
 }
@@ -369,10 +367,8 @@ middle_transition(struct app *app, bool down, uint64_t time_us)
     app->point_remainder_y = 0.0;
     if (down)
         status = tpsc_engine_begin(app->engine, time_us);
-    else {
-        cursor_pin_release_now();
+    else
         status = tpsc_engine_end(app->engine, time_us);
-    }
 
     if (status != TPSC_OK)
         fprintf(stderr, "trackpoint: core gesture transition failed: %d\n", status);
@@ -521,12 +517,8 @@ event_tap_callback(CGEventTapProxy proxy, CGEventType type,
 
     if (type == kCGEventOtherMouseDown || type == kCGEventOtherMouseUp) {
         button = CGEventGetIntegerValueField(event, kCGMouseEventButtonNumber);
-        if (button == kCGMouseButtonCenter) {
-            if (type == kCGEventOtherMouseUp)
-                cursor_pin_release_now();
-            if (app->suppress_middle_click)
-                return NULL;
-        }
+        if (button == kCGMouseButtonCenter && app->suppress_middle_click)
+            return NULL;
     }
 
     if (app->middle_down &&
