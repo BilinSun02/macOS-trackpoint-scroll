@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "config.h"
 
@@ -16,6 +17,7 @@ static bool g_pointer_speed_loaded;
 static double g_pointer_speed = 1.0;
 static double g_pointer_remainder_x;
 static double g_pointer_remainder_y;
+static bool g_logged_first_pointer_event;
 
 static bool
 is_pointer_motion(CGEventType type)
@@ -41,6 +43,8 @@ load_pointer_speed_once(void)
     selected = macos_trackpoint_default_config_path(path, sizeof(path));
     if (selected && macos_trackpoint_config_load(&cfg, selected, false) == 0)
         g_pointer_speed = cfg.pointer_speed;
+
+    fprintf(stderr, "trackpoint: shim pointer_speed=%g\n", g_pointer_speed);
 }
 
 static int64_t
@@ -68,11 +72,20 @@ scale_pointer_event(CGEventRef event)
     CGPoint position;
 
     load_pointer_speed_once();
-    if (g_pointer_speed == 1.0)
-        return;
 
     raw_dx = CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
     raw_dy = CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
+
+    if (g_pointer_speed == 1.0) {
+        if (!g_logged_first_pointer_event) {
+            fprintf(stderr,
+                    "trackpoint: shim first pointer event raw=(%lld,%lld) passthrough\n",
+                    (long long)raw_dx, (long long)raw_dy);
+            g_logged_first_pointer_event = true;
+        }
+        return;
+    }
+
     out_dx = scale_axis(raw_dx, &g_pointer_remainder_x);
     out_dy = scale_axis(raw_dy, &g_pointer_remainder_y);
 
@@ -83,6 +96,14 @@ scale_pointer_event(CGEventRef event)
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaX, out_dx);
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaY, out_dy);
     CGEventSetLocation(event, position);
+
+    if (!g_logged_first_pointer_event) {
+        fprintf(stderr,
+                "trackpoint: shim first pointer event raw=(%lld,%lld) scaled=(%lld,%lld)\n",
+                (long long)raw_dx, (long long)raw_dy,
+                (long long)out_dx, (long long)out_dy);
+        g_logged_first_pointer_event = true;
+    }
 }
 
 CGPoint
