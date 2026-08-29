@@ -13,10 +13,7 @@
 #define CURSOR_PIN_MIDDLE_BUTTON_USAGE 3
 
 static IOHIDManagerRef g_pin_hid_manager;
-static CFRunLoopTimerRef g_pin_timer;
 static bool g_pin_middle_down;
-static bool g_pin_have_anchor;
-static CGPoint g_pin_anchor;
 
 static CFMutableDictionaryRef
 cursor_pin_matching_dictionary(void)
@@ -62,18 +59,6 @@ cursor_pin_matching_dictionary(void)
     return dict;
 }
 
-static bool
-cursor_pin_get_position(CGPoint *position)
-{
-    CGEventRef event = CGEventCreate(NULL);
-
-    if (!event)
-        return false;
-    *position = CGEventGetLocation(event);
-    CFRelease(event);
-    return true;
-}
-
 static void
 cursor_pin_input_value(void *context, IOReturn result, void *sender,
                        IOHIDValueRef value)
@@ -101,25 +86,24 @@ cursor_pin_input_value(void *context, IOReturn result, void *sender,
         return;
 
     g_pin_middle_down = down;
-    if (down)
-        g_pin_have_anchor = cursor_pin_get_position(&g_pin_anchor);
-    else
-        g_pin_have_anchor = false;
-}
 
-static void
-cursor_pin_tick(CFRunLoopTimerRef timer, void *context)
-{
-    (void)timer;
-    (void)context;
-
-    if (g_pin_middle_down && g_pin_have_anchor)
-        (void)CGWarpMouseCursorPosition(g_pin_anchor);
+    /*
+     * Keep receiving hardware mouse deltas while decoupling them from the
+     * visible cursor. Unlike repeatedly warping the cursor, this does not rely
+     * on Quartz's 0.25 s local-event suppression interval and therefore can be
+     * undone immediately when the middle button is released.
+     */
+    (void)CGAssociateMouseAndMouseCursorPosition(down ? false : true);
 }
 
 static void
 cursor_pin_cleanup(void)
 {
+    if (g_pin_middle_down) {
+        (void)CGAssociateMouseAndMouseCursorPosition(true);
+        g_pin_middle_down = false;
+    }
+
     if (g_pin_hid_manager) {
         IOHIDManagerUnscheduleFromRunLoop(g_pin_hid_manager,
                                           CFRunLoopGetMain(),
@@ -128,18 +112,12 @@ cursor_pin_cleanup(void)
         CFRelease(g_pin_hid_manager);
         g_pin_hid_manager = NULL;
     }
-    if (g_pin_timer) {
-        CFRunLoopTimerInvalidate(g_pin_timer);
-        CFRelease(g_pin_timer);
-        g_pin_timer = NULL;
-    }
 }
 
 __attribute__((constructor)) static void
 cursor_pin_init(void)
 {
     CFMutableDictionaryRef match;
-    CFRunLoopTimerContext timer_context = {0, NULL, NULL, NULL, NULL};
 
     g_pin_hid_manager = IOHIDManagerCreate(kCFAllocatorDefault,
                                             kIOHIDOptionsTypeNone);
@@ -165,14 +143,5 @@ cursor_pin_init(void)
         return;
     }
 
-    g_pin_timer = CFRunLoopTimerCreate(kCFAllocatorDefault,
-                                       CFAbsoluteTimeGetCurrent() + 0.001,
-                                       0.001, 0, 0,
-                                       cursor_pin_tick, &timer_context);
-    if (!g_pin_timer) {
-        cursor_pin_cleanup();
-        return;
-    }
-    CFRunLoopAddTimer(CFRunLoopGetMain(), g_pin_timer, kCFRunLoopCommonModes);
     atexit(cursor_pin_cleanup);
 }
