@@ -42,10 +42,10 @@ build/profiles.o: core/src/profiles.c core/include/trackpoint_scroll/profiles.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 install-user: all
-	./scripts/install-user.sh
+	sh scripts/install-user.sh
 
 uninstall-user:
-	./scripts/uninstall-user.sh
+	sh scripts/uninstall-user.sh
 
 clean:
 	rm -rf build
