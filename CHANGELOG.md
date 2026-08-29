@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.1 - 2026-08-29
+
+Hardware-validated cursor edge bugfix.
+
+### Fixed
+
+- Clamp synthetic pointer positions to the active display geometry before posting and caching them.
+- Prevent invisible off-screen cursor overshoot from accumulating while the TrackPoint is pushed against a screen edge, so reversing direction moves the cursor inward immediately.
+- Preserve the split-axis X/Y composition cache while keeping its cached position physically realizable.
+
 ## 1.0.0 - 2026-08-29
 
 First hardware-validated stable release.
