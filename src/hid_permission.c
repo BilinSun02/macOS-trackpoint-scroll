@@ -1,4 +1,4 @@
-#include <IOKit/hid/IOHIDLib.h>
+#include <IOKit/hidsystem/IOHIDLib.h>
 
 #include <stdbool.h>
 #include <stdio.h>
