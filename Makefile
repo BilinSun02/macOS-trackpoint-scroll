@@ -4,6 +4,7 @@ CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Icore/include -Isrc
 LDFLAGS += -framework IOKit -framework CoreFoundation -framework ApplicationServices
 
 BIN := build/macOS-trackpoint-scroll
+LAUNCHER := build/macOS-trackpoint-scroll-launcher
 OBJ := \
 	build/mac_trackpoint_scroll.o \
 	build/config.o \
@@ -13,13 +14,17 @@ OBJ := \
 
 .PHONY: all clean check-submodule install-user uninstall-user
 
-all: check-submodule $(BIN)
+all: check-submodule $(BIN) $(LAUNCHER)
 
 check-submodule:
 	@test -f core/src/engine.c || { echo "core submodule missing; run: git submodule update --init --recursive" >&2; exit 1; }
 
 $(BIN): $(OBJ)
 	$(CC) $(OBJ) -o $@ $(LDFLAGS)
+
+$(LAUNCHER): src/launcher.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) $< -o $@ -framework CoreGraphics
 
 build/mac_trackpoint_scroll.o: src/mac_trackpoint_scroll.c src/config.h src/event_shim.h
 	@mkdir -p build
