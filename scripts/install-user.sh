@@ -23,10 +23,6 @@ if [ ! -x "$SOURCE_BIN" ]; then
     exit 1
 fi
 
-# TCC does not preserve privacy grants reliably across ad-hoc-signed rebuilds.
-# Use one persistent certificate for every development build. An explicit
-# identity can be supplied via MACOS_TRACKPOINT_CODESIGN_IDENTITY; otherwise
-# use the first valid code-signing identity in the user's keychains.
 SIGN_IDENTITY="${MACOS_TRACKPOINT_CODESIGN_IDENTITY:-}"
 if [ -z "$SIGN_IDENTITY" ]; then
     SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | \
@@ -37,22 +33,18 @@ if [ -z "$SIGN_IDENTITY" ]; then
     cat >&2 <<'EOF'
 error: no persistent macOS code-signing identity is available.
 
-Ad-hoc signing is intentionally not used because macOS TCC treats each rebuild
-as a different program and forgets Input Monitoring authorization.
-
-If Xcode already has an Apple Development certificate, this command should list it:
+Create an Apple Development certificate in Xcode, verify that
   security find-identity -v -p codesigning
-
-Otherwise create an Apple Development certificate in Xcode:
-  Xcode > Settings > Accounts > Manage Certificates > + > Apple Development
-
-Then run make install-user again.
+lists at least one valid identity, then run make install-user again.
 EOF
     exit 1
 fi
 
 mkdir -p "$MACOS_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR" "$HOME/Applications"
 rm -rf "$LEGACY_INSTALL_DIR"
+
+# Stop the previous agent before replacing/signing the app.
+launchctl bootout "gui/$UID_NUM" "$PLIST" >/dev/null 2>&1 || true
 
 cp "$SOURCE_BIN" "$INSTALL_BIN"
 chmod 755 "$INSTALL_BIN"
@@ -78,14 +70,14 @@ cat >"$CONTENTS_DIR/Info.plist" <<EOF
     <string>1.0</string>
     <key>LSBackgroundOnly</key>
     <true/>
+    <key>NSInputMonitoringUsageDescription</key>
+    <string>TrackPoint scrolling and pointer handling require access to this mouse's HID input.</string>
 </dict>
 </plist>
 EOF
 
 plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
 
-# The actual TrackPoint process carries the stable signing identity. Rebuilding
-# changes its code hash, but not its designated requirement (signer + bundle ID).
 codesign --force --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP_DIR"
 codesign --verify --strict --verbose=2 "$APP_DIR"
 
@@ -130,13 +122,18 @@ cat >"$PLIST" <<EOF
 EOF
 
 plutil -lint "$PLIST" >/dev/null
-launchctl bootout "gui/$UID_NUM" "$PLIST" >/dev/null 2>&1 || true
 
-# Run the exact signed app through LaunchServices once. The IOHID permission
-# requester linked into the daemon executes before main(); --help then exits
-# immediately without opening or seizing the TrackPoint.
+# Ask from the exact signed application identity that will later access IOHID.
+# The permission-only mode remains alive while macOS presents/services the UI.
 echo "checking/requesting IOHID Input Monitoring access..."
-open -W -n "$APP_DIR" --args --help || true
+open -n "$APP_DIR" --args --request-input-monitoring || true
+
+# Do not start a second copy while the permission requester is alive.
+i=0
+while pgrep -x macOS-trackpoint-scroll >/dev/null 2>&1 && [ "$i" -lt 125 ]; do
+    sleep 0.5
+    i=$((i + 1))
+done
 
 launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart -k "gui/$UID_NUM/$LABEL"
@@ -146,10 +143,6 @@ echo "application: $APP_DIR"
 echo "binary:      $INSTALL_BIN"
 echo "config:      $CONFIG_PATH"
 echo "logs:        $LOG_DIR"
-echo
-echo "If macOS prompted for Input Monitoring, approve macOS-trackpoint-scroll."
-echo "After approving, restart with:"
-echo "  launchctl kickstart -k gui/$UID_NUM/$LABEL"
 echo
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
