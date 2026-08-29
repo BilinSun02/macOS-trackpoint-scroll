@@ -2,13 +2,10 @@
 set -eu
 
 LABEL="io.github.bilinsun02.macos-trackpoint-scroll"
-BUNDLE_ID="$LABEL"
 SOURCE_BIN="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/build/macOS-trackpoint-scroll"
-APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
-CONTENTS_DIR="$APP_DIR/Contents"
-MACOS_DIR="$CONTENTS_DIR/MacOS"
-INSTALL_BIN="$MACOS_DIR/macOS-trackpoint-scroll"
-LEGACY_INSTALL_DIR="$HOME/Library/Application Support/macOS-trackpoint-scroll"
+INSTALL_DIR="$HOME/Library/Application Support/macOS-trackpoint-scroll"
+INSTALL_BIN="$INSTALL_DIR/macOS-trackpoint-scroll"
+OLD_APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
 CONFIG_DIR="$HOME/.config"
 CONFIG_PATH="$CONFIG_DIR/macOS-trackpoint-scroll.conf"
 EXAMPLE_CONFIG="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/config/trackpoint-scroll.conf.example"
@@ -22,45 +19,29 @@ if [ ! -x "$SOURCE_BIN" ]; then
     exit 1
 fi
 
-mkdir -p "$MACOS_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR"
+mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR"
 
-# Remove the previous loose-binary installation so Privacy & Security cannot
-# present two same-named clients while we migrate to a stable app identity.
-rm -rf "$LEGACY_INSTALL_DIR"
+# Remove the temporary app-bundle installation used while diagnosing TCC.
+rm -rf "$OLD_APP_DIR"
 
 cp "$SOURCE_BIN" "$INSTALL_BIN"
 chmod 755 "$INSTALL_BIN"
 
-cat >"$CONTENTS_DIR/Info.plist" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleIdentifier</key>
-    <string>$BUNDLE_ID</string>
-    <key>CFBundleName</key>
-    <string>macOS-trackpoint-scroll</string>
-    <key>CFBundleDisplayName</key>
-    <string>macOS-trackpoint-scroll</string>
-    <key>CFBundleExecutable</key>
-    <string>macOS-trackpoint-scroll</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
-    <key>LSBackgroundOnly</key>
-    <true/>
-</dict>
-</plist>
-EOF
+# An ordinary ad-hoc signature gets a designated requirement tied to the exact
+# build, so TCC/Input Monitoring can treat every rebuild as different code.
+# Give this private per-user utility an explicit stable designated requirement.
+# This is intentionally not distribution-grade identity security: another local
+# binary could deliberately copy the same requirement.
+DR="designated => identifier \"$LABEL\""
+codesign --force --sign - \
+    --identifier "$LABEL" \
+    --requirements "=$DR" \
+    "$INSTALL_BIN"
 
-plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
-
-# Sign the application as one unit so Input Monitoring has a stable bundle
-# identity instead of a repeatedly replaced loose executable.
-codesign --force --deep --sign - --identifier "$BUNDLE_ID" "$APP_DIR" >/dev/null 2>&1 || true
+# Fail installation if signing did not produce the expected stable DR.
+codesign --verify --strict "$INSTALL_BIN"
+codesign --display --requirements - "$INSTALL_BIN" 2>&1 | \
+    grep -F "designated => identifier \"$LABEL\"" >/dev/null
 
 if [ ! -e "$CONFIG_PATH" ]; then
     cp "$EXAMPLE_CONFIG" "$CONFIG_PATH"
@@ -104,15 +85,15 @@ launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart -k "gui/$UID_NUM/$LABEL"
 
 echo "installed and started $LABEL"
-echo "application: $APP_DIR"
-echo "binary:      $INSTALL_BIN"
-echo "config:      $CONFIG_PATH"
-echo "logs:        $LOG_DIR"
+echo "binary: $INSTALL_BIN"
+echo "config: $CONFIG_PATH"
+echo "logs:   $LOG_DIR"
 echo
-echo "If macOS asks for Input Monitoring permission, grant it to:"
-echo "  macOS-trackpoint-scroll"
-echo "from the application bundle at:"
-echo "  $APP_DIR"
+echo "The executable uses a stable explicit designated requirement for TCC."
+echo "Because this install migrates away from the temporary .app identity, macOS"
+echo "may require one final Input Monitoring authorization for:"
+echo "  $INSTALL_BIN"
+echo "Subsequent rebuilds should retain the same designated requirement."
 echo
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
