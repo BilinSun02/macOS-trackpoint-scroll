@@ -9,6 +9,7 @@ OBJ := \
 	build/mac_trackpoint_scroll.o \
 	build/config.o \
 	build/event_shim.o \
+	build/pointer_hid_shim.o \
 	build/engine.o \
 	build/profiles.o
 
@@ -28,13 +29,20 @@ build/permission_main.o: src/permission_main.c
 
 build/mac_trackpoint_scroll.o: src/mac_trackpoint_scroll.c src/config.h src/event_shim.h
 	@mkdir -p build
-	$(CC) $(CFLAGS) -Dmain=tpsc_real_main -include src/event_shim.h -c $< -o $@
+	$(CC) $(CFLAGS) \
+		-Dmain=tpsc_real_main \
+		-DIOHIDValueGetIntegerValue=tpsc_pointer_value_get_integer_value \
+		-include src/event_shim.h -c $< -o $@
 
 build/config.o: src/config.c src/config.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
 build/event_shim.o: src/event_shim.c src/event_shim.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+build/pointer_hid_shim.o: src/pointer_hid_shim.c src/config.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
