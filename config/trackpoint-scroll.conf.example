@@ -11,6 +11,13 @@ scroll_scale=8.0
 # Suppress the adapter's ordinary middle-click while it is used for scrolling.
 suppress_middle_click=true
 
-# Linear TrackPoint pointer sensitivity in seized mode. No acceleration is
-# applied: output delta = raw delta * pointer_speed. 1.0 is exact legacy behavior.
+# Base TrackPoint pointer sensitivity in seized mode.
 pointer_speed=1.0
+
+# Additional velocity-dependent gain. 0.0 disables acceleration completely.
+# With 3.0, high-speed gain approaches 4x pointer_speed.
+pointer_acceleration=0.0
+
+# Raw speed in counts/ms at which half of the configured extra acceleration
+# is active. This setting is ignored when pointer_acceleration=0.0.
+pointer_acceleration_velocity=0.10
