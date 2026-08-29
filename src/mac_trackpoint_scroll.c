@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "config.h"
 #include "trackpoint_scroll/engine.h"
 #include "trackpoint_scroll/profiles.h"
 
@@ -68,9 +69,10 @@ usage(const char *argv0)
 {
     fprintf(stderr,
             "usage: %s [options]\n"
+            "  --config PATH           config file (default ~/.config/macOS-trackpoint-scroll.conf)\n"
             "  --vendor HEX            HID vendor id (default 5859)\n"
             "  --product HEX           HID product id (default 0001)\n"
-            "  --scroll-scale N        macOS pixel scaling (default 8.0)\n"
+            "  --scroll-scale N        macOS pixel scaling (default/config 8.0)\n"
             "  --invert-x              reverse horizontal scroll direction\n"
             "  --invert-y              reverse vertical scroll direction\n"
             "  --allow-middle-click    do not suppress Quartz middle clicks\n"
@@ -108,6 +110,19 @@ parse_double(const char *s, double *out)
     return true;
 }
 
+static const char *
+config_path_from_args(int argc, char **argv, char *buffer, unsigned long size)
+{
+    const char *path = macos_trackpoint_default_config_path(buffer, size);
+    int i;
+
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--config") == 0 && i + 1 < argc)
+            path = argv[++i];
+    }
+    return path;
+}
+
 static int
 parse_args(struct app *app, int argc, char **argv)
 {
@@ -127,6 +142,8 @@ parse_args(struct app *app, int argc, char **argv)
             app->x_sign *= -1.0;
         } else if (strcmp(argv[i], "--invert-y") == 0) {
             app->y_sign *= -1.0;
+        } else if (strcmp(argv[i], "--config") == 0 && i + 1 < argc) {
+            i++;
         } else if (strcmp(argv[i], "--vendor") == 0 && i + 1 < argc) {
             if (!parse_u32_hex(argv[++i], &app->vendor_id))
                 return -1;
@@ -262,14 +279,6 @@ post_scroll(struct app *app, double vertical, double horizontal)
     if (vertical == 0.0 && horizontal == 0.0)
         return;
 
-    /*
-     * CoreGraphics exposes the same smooth-scroll displacement in multiple
-     * representations. Some applications consume the 16.16 fixed-point fields,
-     * while others consume the integer pixel PointDelta fields populated by
-     * CGEventCreateScrollWheelEvent(). Preserve sub-pixel core output in the
-     * fixed-point representation and carry fractional pixels across ticks for
-     * the PointDelta representation instead of rounding every 2 ms tick away.
-     */
     point_vertical = take_point_delta(vertical, &app->point_remainder_y);
     point_horizontal = take_point_delta(horizontal, &app->point_remainder_x);
 
@@ -279,9 +288,6 @@ post_scroll(struct app *app, double vertical, double horizontal)
         return;
 
     CGEventSetIntegerValueField(event, kCGScrollWheelEventIsContinuous, 1);
-
-    /* Set the precise forms after construction; setting DeltaAxis can cause
-     * CoreGraphics to recalculate PointDelta/FixedPtDelta internally. */
     CGEventSetDoubleValueField(event, kCGScrollWheelEventFixedPtDeltaAxis1,
                                vertical);
     CGEventSetDoubleValueField(event, kCGScrollWheelEventFixedPtDeltaAxis2,
@@ -683,8 +689,25 @@ main(int argc, char **argv)
         .y_sign = -1.0,
         .suppress_middle_click = true,
     };
+    struct macos_trackpoint_config config;
+    char config_path[1024];
+    const char *selected_config;
 
     (void)mach_timebase_info(&g_timebase);
+
+    macos_trackpoint_config_defaults(&config);
+    selected_config = config_path_from_args(argc, argv,
+                                             config_path, sizeof(config_path));
+    if (selected_config &&
+        macos_trackpoint_config_load(&config, selected_config, false) != 0)
+        return 2;
+
+    app.scroll_scale = config.scroll_scale;
+    app.suppress_middle_click = config.suppress_middle_click;
+    if (config.natural_scroll) {
+        app.x_sign *= -1.0;
+        app.y_sign *= -1.0;
+    }
 
     if (parse_args(&app, argc, argv) != 0) {
         usage(argv[0]);
@@ -700,8 +723,9 @@ main(int argc, char **argv)
     }
 
     fprintf(stderr,
-            "trackpoint: running for vid=%04x pid=%04x, scale=%g%s\n",
+            "trackpoint: running for vid=%04x pid=%04x, scale=%g, direction=%s%s\n",
             app.vendor_id, app.product_id, app.scroll_scale,
+            config.natural_scroll ? "natural" : "traditional",
             app.seize ? " [exclusive seize mode]" : "");
     CFRunLoopRun();
     cleanup(&app);
