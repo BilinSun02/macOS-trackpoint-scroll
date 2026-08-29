@@ -2,19 +2,26 @@
 
 A macOS port of [`libinput-trackpoint-scroll`](git@github.com:BilinSun02/libinput-trackpoint-scroll.git), using the same pinned [`trackpoint-scroll-core`](git@github.com:BilinSun02/trackpoint-scroll-core.git) reconstruction/transfer engine.
 
+Current stable version: **1.0.0**.
+
 Tested adapter:
 
 - vendor `0x5859`
 - product `0x0001`
 - `xy_3dg12 xy_3dg12 USB RF Adapter`
 
-The adapter being classified by macOS as a generic mouse is not a protocol problem: the program matches it directly through IOKit by HID identity.
+## v1 architecture
 
-## Stable path
+The hardware-validated path uses exclusive HID ownership (`--seize`). The daemon reads the target mouse through IOKit, preventing the normal macOS mouse stack from consuming its reports. It then:
 
-The hardware-validated implementation uses exclusive HID ownership (`--seize`). This prevents the generic macOS mouse stack from consuming TrackPoint reports. Ordinary TrackPoint movement and buttons are forwarded back through Quartz; while middle is held, the same raw motion is sent only to the scroll engine.
+- forwards ordinary left/right buttons and pointer motion through Quartz;
+- applies an optional raw-HID pointer speed/acceleration curve to ordinary motion;
+- converts middle-button motion into continuous pixel scrolling through `trackpoint-scroll-core`;
+- keeps scrolling on raw TrackPoint deltas, independent of the pointer curve.
 
-The unfinished Shift/Scroll-Lock experiment is intentionally **not part of the stable build**.
+The adapter reports X and Y as separate HID element callbacks. `event_shim.c` keeps a short cache of the most recently posted synthetic cursor position so split-axis reports compose instead of overwriting one another.
+
+Pointer acceleration is applied before Quartz event creation, using the original `IOHIDValueGetTimeStamp()` timestamps. The default `pointer_acceleration=0` is a linear/no-acceleration path.
 
 ## Build
 
@@ -32,27 +39,57 @@ git submodule update --init --recursive
 
 ## Install for automatic startup
 
-Install the built binary as a per-user LaunchAgent:
+The supported installation is:
 
 ```sh
 make install-user
 ```
 
-This copies the executable to:
+The installer requires a persistent code-signing identity. An Apple Development identity created by Xcode is sufficient for local use; verify it with:
 
-```text
-~/Library/Application Support/macOS-trackpoint-scroll/macOS-trackpoint-scroll
+```sh
+security find-identity -v -p codesigning
 ```
 
-and installs:
+The signed application is installed at:
+
+```text
+~/Applications/macOS-trackpoint-scroll.app
+```
+
+The per-user LaunchAgent is installed at:
 
 ```text
 ~/Library/LaunchAgents/io.github.bilinsun02.macos-trackpoint-scroll.plist
 ```
 
-The LaunchAgent runs the installed executable with `--seize` and the explicit config path. It starts at login in the user's GUI/Aqua session, which is important because synthesized Quartz events need access to that session.
+The LaunchAgent runs the app executable with `--seize` in the logged-in GUI session.
 
-Logs are written to:
+### macOS privacy permissions
+
+Add/enable `~/Applications/macOS-trackpoint-scroll.app` in both:
+
+```text
+System Settings -> Privacy & Security -> Input Monitoring
+System Settings -> Privacy & Security -> Accessibility
+```
+
+Both are required for the seized architecture:
+
+- **Input Monitoring** permits the app to open/read the target HID device exclusively.
+- **Accessibility** permits `CGEventPost()` to inject the replacement pointer/button/scroll events.
+
+On the tested Sequoia system, programmatic permission requests did not reliably register or present a prompt, so v1 documents manual authorization instead of depending on prompt behavior.
+
+After changing either permission:
+
+```sh
+launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
+```
+
+Persistent signing plus the stable bundle identifier is used so these grants can survive ordinary rebuild/reinstall cycles.
+
+Logs:
 
 ```text
 ~/Library/Logs/macOS-trackpoint-scroll/stdout.log
@@ -66,22 +103,20 @@ launchctl print gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
 tail -f ~/Library/Logs/macOS-trackpoint-scroll/stderr.log
 ```
 
-To rebuild and replace the installed copy:
+Rebuild/reinstall:
 
 ```sh
 make clean
 make install-user
 ```
 
-To uninstall startup integration:
+Uninstall:
 
 ```sh
 make uninstall-user
 ```
 
-The uninstaller intentionally leaves the config and logs in place.
-
-If macOS requests Input Monitoring or Accessibility permission, grant it to the installed executable at the stable path above. Replacing the binary with a new build can cause macOS to request privacy approval again.
+The uninstaller leaves config and logs in place.
 
 ## Configuration
 
@@ -97,9 +132,25 @@ Example:
 natural_scroll=false
 scroll_scale=8.0
 suppress_middle_click=true
+
+pointer_speed=1.0
+pointer_acceleration=0.0
+pointer_acceleration_velocity=0.10
 ```
 
-The TrackPoint direction is intentionally independent of macOS's system-wide Natural Scrolling setting. CLI options are applied after the config file.
+`pointer_speed` is the linear base gain. `pointer_acceleration` adds velocity-dependent gain; zero disables acceleration. `pointer_acceleration_velocity` is the raw speed in counts/ms at which half of the configured extra gain is active.
+
+For nonzero acceleration, the causal gain is based on the preceding HID report:
+
+```text
+speed = hypot(dx, dy) / elapsed_ms
+response = speed / (speed + pointer_acceleration_velocity)
+gain = pointer_speed * (1 + pointer_acceleration * response)
+```
+
+The pointer path preserves fractional remainder, resets after long idle periods, and resets when entering/leaving middle-button scrolling. Scrolling itself always receives the unscaled raw HID values.
+
+The TrackPoint scroll direction is intentionally independent of macOS's system-wide Natural Scrolling setting. CLI options are applied after the config file.
 
 ## Scroll pipeline
 
@@ -125,24 +176,18 @@ hyperbolic_u=1.6
 hyperbolic_k=-1.175
 ```
 
-macOS scroll units are not identical to libinput scroll units, so `scroll_scale` / `--scroll-scale` remains exposed for calibration.
-
-## Seized pointer forwarding
-
-The adapter reports X and Y as separate HID element callbacks. Quartz posting is asynchronous enough that querying cursor position independently for each axis can make one axis overwrite the other. `event_shim.c` therefore retains the most recently posted synthetic pointer position for a short split-axis window so the two reports compose correctly.
-
-Because ordinary pointer motion is synthesized in `--seize` mode, it does not pass through macOS's native hardware-pointer acceleration path exactly as an unseized mouse would.
+macOS scroll units are not identical to libinput scroll units, so `scroll_scale` remains exposed for calibration.
 
 ## Manual diagnostic run
 
-Manual foreground execution remains useful for debugging only:
+For debugging outside launchd:
 
 ```sh
 ./build/macOS-trackpoint-scroll --seize --verbose
 ```
 
-If exclusive HID open is denied for an ordinary user account on a particular macOS installation, the log will show the `IOHIDManagerOpen` error. In that case the startup architecture will need a small privileged HID helper paired with the per-user GUI agent rather than moving the whole program into a root LaunchDaemon.
+Remember that a process launched from Terminal can inherit/resolve TCC authorization differently from the LaunchAgent app identity. The installed app/LaunchAgent is the authoritative test for automatic startup.
 
 ## Core pin
 
-The core gitlink is pinned to `133df50ea5ce58e71e3fed3240c26999ee689386`, matching the core-backed Linux candidate.
+The core gitlink is pinned to `133df50ea5ce58e71e3fed3240c26999ee689386`.

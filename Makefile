@@ -5,7 +5,6 @@ LDFLAGS += -framework IOKit -framework CoreFoundation -framework ApplicationServ
 
 BIN := build/macOS-trackpoint-scroll
 OBJ := \
-	build/permission_main.o \
 	build/mac_trackpoint_scroll.o \
 	build/config.o \
 	build/event_shim.o \
@@ -23,14 +22,9 @@ check-submodule:
 $(BIN): $(OBJ)
 	$(CC) $(OBJ) -o $@ $(LDFLAGS)
 
-build/permission_main.o: src/permission_main.c
-	@mkdir -p build
-	$(CC) $(CFLAGS) -c $< -o $@
-
 build/mac_trackpoint_scroll.o: src/mac_trackpoint_scroll.c src/config.h src/event_shim.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) \
-		-Dmain=tpsc_real_main \
 		-DIOHIDValueGetIntegerValue=tpsc_pointer_value_get_integer_value \
 		-include src/event_shim.h -c $< -o $@
 

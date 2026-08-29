@@ -4,6 +4,7 @@ set -eu
 LABEL="io.github.bilinsun02.macos-trackpoint-scroll"
 BUNDLE_ID="$LABEL"
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+VERSION="$(cat "$ROOT/VERSION")"
 SOURCE_BIN="$ROOT/build/macOS-trackpoint-scroll"
 APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
 CONTENTS_DIR="$APP_DIR/Contents"
@@ -65,9 +66,9 @@ cat >"$CONTENTS_DIR/Info.plist" <<EOF
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>$VERSION</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
+    <string>$VERSION</string>
     <key>LSBackgroundOnly</key>
     <true/>
     <key>NSInputMonitoringUsageDescription</key>
@@ -78,6 +79,8 @@ EOF
 
 plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
 
+# A persistent certificate plus the stable bundle identifier gives TCC a stable
+# code identity across rebuilds. Ad-hoc signing is intentionally not supported.
 codesign --force --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP_DIR"
 codesign --verify --strict --verbose=2 "$APP_DIR"
 
@@ -122,31 +125,24 @@ cat >"$PLIST" <<EOF
 EOF
 
 plutil -lint "$PLIST" >/dev/null
-
-# Ask from the exact signed application identity that will later access IOHID
-# and inject replacement Quartz pointer/scroll events.
-echo "checking/requesting Input Monitoring and Accessibility access..."
-open -n "$APP_DIR" --args --request-input-monitoring || true
-
-# Do not start a second copy while the permission requester is alive.
-i=0
-while pgrep -x macOS-trackpoint-scroll >/dev/null 2>&1 && [ "$i" -lt 125 ]; do
-    sleep 0.5
-    i=$((i + 1))
-done
-
 launchctl bootstrap "gui/$UID_NUM" "$PLIST"
 launchctl kickstart -k "gui/$UID_NUM/$LABEL"
 
-echo "installed and started $LABEL"
+echo "installed and started $LABEL v$VERSION"
 echo "application: $APP_DIR"
 echo "binary:      $INSTALL_BIN"
 echo "config:      $CONFIG_PATH"
 echo "logs:        $LOG_DIR"
 echo
-echo "If event-posting access remains denied, add the application manually in:"
+echo "Required macOS privacy grants for the application:"
+echo "  System Settings > Privacy & Security > Input Monitoring"
 echo "  System Settings > Privacy & Security > Accessibility"
-echo "  $APP_DIR"
+echo "  add/enable: $APP_DIR"
+echo
+echo "Input Monitoring permits exclusive HID access; Accessibility permits the"
+echo "synthetic Quartz pointer/scroll events that replace the seized mouse events."
+echo "After changing either grant, restart with:"
+echo "  launchctl kickstart -k gui/$UID_NUM/$LABEL"
 echo
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"

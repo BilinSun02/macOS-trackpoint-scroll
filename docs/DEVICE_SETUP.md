@@ -1,83 +1,84 @@
 # Device setup on macOS
 
-## Tested Linux-side identity
-
-The source project records this adapter:
+## Tested device
 
 ```text
 name:    xy_3dg12 xy_3dg12 USB RF Adapter
-bus:     0x0003
 vendor:  0x5859
 product: 0x0001
-version: 0x0110
+usage:   Generic Desktop / Mouse
 ```
 
 Relevant HID controls are relative X/Y plus left, right, and middle buttons.
 
-## The generic-mouse classification is not a blocker
+## Generic-mouse classification
 
-Linux needed a udev property (`ID_INPUT_POINTINGSTICK=1`) because libinput selected TrackPoint-specific policy from that classification. macOS has no equivalent requirement in this port.
+Linux needed a udev pointing-stick classification because libinput selected TrackPoint policy from that property. This macOS port matches the device directly by HID vendor ID, product ID, and Generic Desktop / Mouse usage, so the generic-mouse classification is not a blocker.
 
-This program matches the physical HID device directly by vendor ID, product ID, and Generic Desktop / Mouse HID usage. It therefore does not need the operating system to call the adapter a TrackPoint or pointing stick.
+The tested adapter's report descriptor exposes ordinary relative mouse axes/buttons. The program therefore treats device identity and TrackPoint policy as application concerns rather than relying on macOS to classify the hardware specially.
 
-In normal mode the generic-mouse path is intentionally left in place for ordinary cursor movement. When the target adapter's raw middle-button state starts a scroll gesture, a Quartz event tap suppresses native mouse-movement events while the raw IOKit X/Y reports are processed by `trackpoint-scroll-core` and emitted as scroll events.
+## Supported v1 mode: exclusive seize
 
-That means the initial generic-mouse classification is useful rather than harmful outside the gesture: macOS continues to apply its normal pointer behavior when you are not scrolling.
+The validated v1 path opens the matching HID device with `kIOHIDOptionsTypeSeizeDevice`.
 
-## Exclusive fallback (`--seize`)
+Consequences:
 
-If a particular macOS release, USB bridge, or desktop utility produces duplicate events, use:
+- the normal macOS mouse consumer no longer receives the adapter's events;
+- the daemon forwards ordinary pointer motion and left/right buttons through Quartz;
+- middle+motion is consumed as TrackPoint scrolling;
+- the target adapter is isolated from unrelated pointing devices.
 
-```sh
-sudo ./build/macOS-trackpoint-scroll --seize
-```
-
-The HID manager is then opened with `kIOHIDOptionsTypeSeizeDevice`. The matching device is exclusively owned by this process, so the normal generic-mouse consumer no longer receives its HID events. The program forwards left/right buttons and ordinary relative motion itself, while middle+motion is converted to scrolling.
-
-Tradeoff: synthesized pointer movement does not pass through exactly the same native mouse-acceleration pipeline as the original hardware event. Prefer normal mode unless exclusive ownership is actually required.
+The LaunchAgent runs as the logged-in user; root/sudo is not part of the supported installation.
 
 ## Permissions
 
-Normal mode needs permission to install a Quartz event tap and post synthetic scroll events. Depending on macOS version, grant the terminal/application running the binary access under:
+The installed signed application requires both of these manual grants:
 
 ```text
 System Settings -> Privacy & Security -> Input Monitoring
 System Settings -> Privacy & Security -> Accessibility
 ```
 
-After changing permissions, quit and relaunch the process.
+Add/enable:
 
-`--seize` can additionally require elevated privileges for exclusive HID access.
+```text
+~/Applications/macOS-trackpoint-scroll.app
+```
+
+Input Monitoring is required for the exclusive IOHID open. Without it, `IOHIDManagerOpen` returns `kIOReturnNotPermitted` (`0xe00002e2`).
+
+Accessibility is required for synthetic Quartz event posting. Without it, the daemon can successfully seize the TrackPoint while its replacement pointer events are not accepted, leaving the cursor apparently immobile.
+
+On the tested Sequoia system, automatic permission requests were not reliable enough to use as the installation contract. After granting permissions, restart the LaunchAgent:
+
+```sh
+launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
+```
 
 ## Verify device discovery
 
-Build and run with diagnostics:
-
-```sh
-make
-./build/macOS-trackpoint-scroll --verbose
-```
-
-On a successful match, startup output should include a line similar to:
+The installed daemon logs to:
 
 ```text
-trackpoint: matched HID device xy_3dg12 xy_3dg12 USB RF Adapter (vid=5859 pid=0001)
+~/Library/Logs/macOS-trackpoint-scroll/stderr.log
 ```
 
-If it does not match, inspect the adapter in System Information -> USB, then override IDs if needed:
+A healthy startup includes lines similar to:
 
-```sh
-./build/macOS-trackpoint-scroll --vendor 5859 --product 0001 --verbose
+```text
+trackpoint: running for vid=5859 pid=0001, scale=8, direction=traditional [exclusive seize mode]
+trackpoint: matched HID device xy_3dg12 USB RF Adapter (vid=5859 pid=0001) [seized]
+trackpoint: raw HID pointer curve speed=1 acceleration=0 velocity=0.1 counts/ms
 ```
 
-The command-line values are hexadecimal.
+If the HID open fails with `0xe00002e2`, check Input Monitoring. If the device matches/seizes but pointer and scroll injection are ineffective, check Accessibility.
 
-## Multiple pointing devices
+## Pointer forwarding
 
-Quartz mouse events do not expose a stable USB vendor/product identity suitable for event-tap filtering. In normal mode, raw gesture ownership is device-specific on the IOKit side, but motion suppression at the Quartz layer applies while the TrackPoint's middle button is held. Therefore movement from another mouse at the exact same time can also be suppressed.
+The adapter reports X and Y as separate HID callbacks. Quartz event posting is asynchronous, so the second axis can otherwise query an old cursor position and overwrite the first. The event shim caches the most recently posted synthetic position for 50 ms, allowing split-axis reports to compose.
 
-If that matters, use `--seize`, which provides strict per-device isolation by preventing the target adapter's native mouse events from being generated in the first place.
+Optional pointer speed/acceleration is applied to the raw HID values before pointer events are created. It uses the HID timestamps, not synthetic Quartz timestamps. Middle-button scrolling bypasses this pointer curve and feeds raw deltas to the shared scroll core.
 
 ## Sparse-report behavior
 
-No macOS-side smoothing is added before the shared core. The Linux hardware trace showed low-force reports separated by roughly tens to hundreds of milliseconds (with a recorded median near 129 ms and ordinary gaps reaching roughly 440 ms), while higher force can approach ~10 ms. Raw HID timestamps are preserved and passed directly to the core so its startup coalescing, interval estimation, causal fixed-time reconstruction, and nonlinear transfer function retain their intended behavior.
+No macOS-side smoothing is added before the shared scroll core. Low-force reports from this adapter can be separated by tens to hundreds of milliseconds, while higher force can approach roughly 10 ms. Raw HID timestamps are preserved so the core's startup coalescing, interval estimation, causal fixed-time reconstruction, and nonlinear transfer function retain their intended behavior.
