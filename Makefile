@@ -8,6 +8,7 @@ OBJ := \
 	build/mac_trackpoint_scroll.o \
 	build/config.o \
 	build/event_shim.o \
+	build/hid_permission.o \
 	build/engine.o \
 	build/profiles.o
 
@@ -30,6 +31,10 @@ build/config.o: src/config.c src/config.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 build/event_shim.o: src/event_shim.c src/event_shim.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+build/hid_permission.o: src/hid_permission.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
