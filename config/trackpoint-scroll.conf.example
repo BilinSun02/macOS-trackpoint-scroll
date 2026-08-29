@@ -1,0 +1,12 @@
+# macOS TrackPoint Scroll configuration
+# Default location: ~/.config/macOS-trackpoint-scroll.conf
+
+# false preserves the current/traditional wheel direction.
+# true reverses both axes for natural/content-following scrolling.
+natural_scroll=false
+
+# Multiplier applied to reconstructed TrackPoint scroll output.
+scroll_scale=8.0
+
+# Suppress the adapter's ordinary middle-click while it is used for scrolling.
+suppress_middle_click=true
