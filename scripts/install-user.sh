@@ -23,8 +23,6 @@ mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR"
 cp "$SOURCE_BIN" "$INSTALL_BIN"
 chmod 755 "$INSTALL_BIN"
 
-# Give the installed executable a stable code-signing envelope. This is ad-hoc,
-# so reinstalling a changed binary may still require macOS privacy approval again.
 codesign --force --sign - "$INSTALL_BIN" >/dev/null 2>&1 || true
 
 if [ ! -e "$CONFIG_PATH" ]; then
@@ -44,6 +42,7 @@ cat >"$PLIST" <<EOF
     <array>
         <string>$INSTALL_BIN</string>
         <string>--seize</string>
+        <string>--verbose</string>
         <string>--config</string>
         <string>$CONFIG_PATH</string>
     </array>
