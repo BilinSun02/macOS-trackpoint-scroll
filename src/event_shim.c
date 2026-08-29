@@ -3,6 +3,7 @@
 
 #include <ApplicationServices/ApplicationServices.h>
 #include <CoreFoundation/CoreFoundation.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 
