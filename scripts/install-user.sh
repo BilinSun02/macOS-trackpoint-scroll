@@ -8,6 +8,7 @@ APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 INSTALL_BIN="$MACOS_DIR/macOS-trackpoint-scroll"
+LEGACY_INSTALL_DIR="$HOME/Library/Application Support/macOS-trackpoint-scroll"
 CONFIG_DIR="$HOME/.config"
 CONFIG_PATH="$CONFIG_DIR/macOS-trackpoint-scroll.conf"
 EXAMPLE_CONFIG="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/config/trackpoint-scroll.conf.example"
@@ -22,6 +23,10 @@ if [ ! -x "$SOURCE_BIN" ]; then
 fi
 
 mkdir -p "$MACOS_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR"
+
+# Remove the previous loose-binary installation so Privacy & Security cannot
+# present two same-named clients while we migrate to a stable app identity.
+rm -rf "$LEGACY_INSTALL_DIR"
 
 cp "$SOURCE_BIN" "$INSTALL_BIN"
 chmod 755 "$INSTALL_BIN"
