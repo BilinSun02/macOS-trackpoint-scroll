@@ -1,3 +1,5 @@
+#include <ApplicationServices/ApplicationServices.h>
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -70,10 +72,50 @@ request_input_monitoring(void)
     return access == TPSC_IOHID_ACCESS_GRANTED ? 0 : 1;
 }
 
+static int
+request_event_posting(void)
+{
+    bool access;
+
+    access = CGPreflightPostEventAccess();
+    fprintf(stderr, "trackpoint: Quartz event-posting access=%s\n",
+            access ? "granted" : "denied");
+    if (access)
+        return 0;
+
+    fprintf(stderr,
+            "trackpoint: requesting Quartz event-posting access "
+            "(Privacy & Security > Accessibility)\n");
+    access = CGRequestPostEventAccess();
+    fprintf(stderr, "trackpoint: Quartz event-posting final access=%s\n",
+            access ? "granted" : "denied");
+    return access ? 0 : 1;
+}
+
+static int
+request_permissions(void)
+{
+    int hid_status = request_input_monitoring();
+    int post_status = request_event_posting();
+    return hid_status == 0 && post_status == 0 ? 0 : 1;
+}
+
+static void
+report_permissions(void)
+{
+    uint32_t hid = IOHIDCheckAccess(TPSC_IOHID_REQUEST_LISTEN_EVENT);
+    fprintf(stderr, "trackpoint: IOHID Input Monitoring access=%s (%u)\n",
+            access_name(hid), hid);
+    fprintf(stderr, "trackpoint: Quartz event-posting access=%s\n",
+            CGPreflightPostEventAccess() ? "granted" : "denied");
+}
+
 int
 main(int argc, char **argv)
 {
     if (argc == 2 && strcmp(argv[1], "--request-input-monitoring") == 0)
-        return request_input_monitoring();
+        return request_permissions();
+
+    report_permissions();
     return tpsc_real_main(argc, argv);
 }
