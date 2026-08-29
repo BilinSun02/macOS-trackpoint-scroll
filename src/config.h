@@ -8,6 +8,8 @@ struct macos_trackpoint_config {
     double scroll_scale;
     bool suppress_middle_click;
     double pointer_speed;
+    double pointer_acceleration;
+    double pointer_acceleration_velocity;
 };
 
 void macos_trackpoint_config_defaults(struct macos_trackpoint_config *cfg);
