@@ -123,9 +123,9 @@ EOF
 
 plutil -lint "$PLIST" >/dev/null
 
-# Ask from the exact signed application identity that will later access IOHID.
-# The permission-only mode remains alive while macOS presents/services the UI.
-echo "checking/requesting IOHID Input Monitoring access..."
+# Ask from the exact signed application identity that will later access IOHID
+# and inject replacement Quartz pointer/scroll events.
+echo "checking/requesting Input Monitoring and Accessibility access..."
 open -n "$APP_DIR" --args --request-input-monitoring || true
 
 # Do not start a second copy while the permission requester is alive.
@@ -143,6 +143,10 @@ echo "application: $APP_DIR"
 echo "binary:      $INSTALL_BIN"
 echo "config:      $CONFIG_PATH"
 echo "logs:        $LOG_DIR"
+echo
+echo "If event-posting access remains denied, add the application manually in:"
+echo "  System Settings > Privacy & Security > Accessibility"
+echo "  $APP_DIR"
 echo
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
