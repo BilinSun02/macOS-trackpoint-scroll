@@ -56,6 +56,39 @@ sudo ./build/macOS-trackpoint-scroll --seize
 
 See [`docs/DEVICE_SETUP.md`](docs/DEVICE_SETUP.md) for the generic-mouse classification discussion and troubleshooting.
 
+## Configuration
+
+The program does **not** follow macOS's system-wide "Natural scrolling" setting. TrackPoint scrolling has its own explicit direction setting in:
+
+```text
+~/.config/macOS-trackpoint-scroll.conf
+```
+
+An example is provided at `config/trackpoint-scroll.conf.example`:
+
+```ini
+natural_scroll=false
+scroll_scale=8.0
+suppress_middle_click=true
+```
+
+`natural_scroll=false` preserves the direction used by the port so far. Set it to `true` to reverse both axes for natural/content-following scrolling.
+
+To install the example config:
+
+```sh
+mkdir -p ~/.config
+cp config/trackpoint-scroll.conf.example ~/.config/macOS-trackpoint-scroll.conf
+```
+
+A different file can be selected with:
+
+```sh
+./build/macOS-trackpoint-scroll --config /path/to/trackpoint-scroll.conf
+```
+
+Configuration is loaded before command-line options, so CLI options such as `--scroll-scale`, `--invert-x`, `--invert-y`, and `--allow-middle-click` override the corresponding effective settings for that invocation.
+
 ## Behavior
 
 While the target device's middle button is held:
@@ -81,7 +114,7 @@ hyperbolic_u=1.6
 hyperbolic_k=-1.175
 ```
 
-macOS scroll units are not identical to libinput scroll units, so `--scroll-scale` is intentionally exposed for host calibration.
+macOS scroll units are not identical to libinput scroll units, so `scroll_scale` / `--scroll-scale` is intentionally exposed for host calibration.
 
 ## Caveats
 
