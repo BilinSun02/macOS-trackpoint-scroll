@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.2 - 2026-08-29
+
+Hardware-validated synthetic click-state bugfix.
+
+### Fixed
+
+- Populate Quartz mouse click-state fields so TrackPoint double-clicks and triple-clicks are recognized normally.
+- Keep matching mouse-down/mouse-up events on the same synthetic event number.
+- Respect the user's double-click timing preference with a safe fallback and positional slop.
+- Carry click state through drags and invalidate a click sequence after an actual drag.
+
 ## 1.0.1 - 2026-08-29
 
 Hardware-validated cursor edge bugfix.
