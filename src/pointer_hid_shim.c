@@ -206,6 +206,11 @@ transform_motion(IOHIDValueRef value, uint32_t usage, int64_t raw)
         remainder = &g_pointer.remainder_y;
     }
 
+    /* A zero hardware delta must remain zero; carry fractional remainder until
+     * that axis actually moves again instead of manufacturing idle motion. */
+    if (raw == 0)
+        return 0;
+
     return scale_axis(raw, remainder);
 }
 
