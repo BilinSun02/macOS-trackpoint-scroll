@@ -1,6 +1,6 @@
 # macOS TrackPoint Scroll
 
-A macOS port of [`libinput-trackpoint-scroll`](git@github.com:BilinSun02/libinput-trackpoint-scroll.git), using the same pinned [`trackpoint-scroll-core`](git@github.com:BilinSun02/trackpoint-scroll-core.git) reconstruction/transfer engine.
+A macOS port of [`libinput-trackpoint-scroll`](https://github.com/BilinSun02/libinput-trackpoint-scroll), using the same pinned [`trackpoint-scroll-core`](https://github.com/BilinSun02/trackpoint-scroll-core) reconstruction/transfer engine.
 
 Current stable version: **1.0.2**.
 
@@ -28,7 +28,7 @@ Pointer acceleration is applied before Quartz event creation, using the original
 ## Build
 
 ```sh
-git clone --recurse-submodules git@github.com:BilinSun02/macOS-trackpoint-scroll.git
+git clone --recurse-submodules https://github.com/BilinSun02/macOS-trackpoint-scroll.git
 cd macOS-trackpoint-scroll
 make
 ```
