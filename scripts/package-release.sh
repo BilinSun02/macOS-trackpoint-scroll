@@ -68,10 +68,10 @@ chmod 755 "$STAGE/install.sh" "$STAGE/uninstall.sh"
 
 (
     cd "$DIST_ROOT"
-    COPYFILE_DISABLE=1 tar -czf "$(basename "$ARCHIVE")" "$(basename "$STAGE")"
+    ARCHIVE_NAME="$(basename "$ARCHIVE")"
+    COPYFILE_DISABLE=1 tar -czf "$ARCHIVE_NAME" "$(basename "$STAGE")"
+    shasum -a 256 "$ARCHIVE_NAME" >"$(basename "$CHECKSUM")"
 )
-
-shasum -a 256 "$ARCHIVE" >"$CHECKSUM"
 
 echo "release archive: $ARCHIVE"
 echo "checksum:        $CHECKSUM"
