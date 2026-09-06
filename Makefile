@@ -12,7 +12,7 @@ OBJ := \
 	build/engine.o \
 	build/profiles.o
 
-.PHONY: all clean check-submodule install-user uninstall-user
+.PHONY: all clean check-submodule install-user uninstall-user dist
 
 all: check-submodule $(BIN)
 
@@ -53,6 +53,9 @@ install-user: all
 
 uninstall-user:
 	sh scripts/uninstall-user.sh
+
+dist: all
+	sh scripts/package-release.sh
 
 clean:
 	rm -rf build

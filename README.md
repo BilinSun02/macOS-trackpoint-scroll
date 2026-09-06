@@ -25,6 +25,29 @@ Synthetic button events also carry Quartz click-state and event-number bookkeepi
 
 Pointer acceleration is applied before Quartz event creation, using the original `IOHIDValueGetTimeStamp()` timestamps. The default `pointer_acceleration=0` is a linear/no-acceleration path.
 
+## Prebuilt release installation
+
+A prebuilt release can be installed on a Mac with **no Xcode, compiler toolchain, or Apple code-signing identity**.
+
+Download the `.tar.gz` release, extract it, and run:
+
+```sh
+./install.sh
+```
+
+The release app is ad-hoc signed during packaging. It is intentionally not Developer-ID signed or notarized, and the installer clears quarantine from the installed copy after you explicitly run it.
+
+See [docs/INSTALLING.md](docs/INSTALLING.md) for the complete fresh-Mac installation, privacy-permission, update, and uninstall procedure.
+
+Maintainers can create the archive with:
+
+```sh
+make clean
+make dist
+```
+
+See [docs/PACKAGING.md](docs/PACKAGING.md) for the complete packaging and release-upload procedure.
+
 ## Build
 
 ```sh
@@ -39,19 +62,21 @@ If needed:
 git submodule update --init --recursive
 ```
 
-## Install for automatic startup
+## Install for automatic startup from a source checkout
 
-The supported installation is:
+The source-tree developer installation is:
 
 ```sh
 make install-user
 ```
 
-The installer requires a persistent code-signing identity. An Apple Development identity created by Xcode is sufficient for local use; verify it with:
+This developer installer requires a persistent code-signing identity. An Apple Development identity created by Xcode is sufficient for local use; verify it with:
 
 ```sh
 security find-identity -v -p codesigning
 ```
+
+For a destination Mac without Xcode or an identity, use the **prebuilt release installer** described above instead.
 
 The signed application is installed at:
 
@@ -89,7 +114,7 @@ After changing either permission:
 launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
 ```
 
-Persistent signing plus the stable bundle identifier is used so these grants can survive ordinary rebuild/reinstall cycles.
+Persistent signing plus the stable bundle identifier is used for source-tree developer installs so these grants can survive ordinary rebuild/reinstall cycles. Ad-hoc-signed binary releases may require the grants to be enabled again after an update.
 
 Logs:
 
@@ -105,14 +130,14 @@ launchctl print gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
 tail -f ~/Library/Logs/macOS-trackpoint-scroll/stderr.log
 ```
 
-Rebuild/reinstall:
+Rebuild/reinstall from source:
 
 ```sh
 make clean
 make install-user
 ```
 
-Uninstall:
+Uninstall from source:
 
 ```sh
 make uninstall-user
