@@ -66,6 +66,14 @@ cp "$ROOT/docs/INSTALLING.md" "$STAGE/INSTALLING.md"
 cp "$ROOT/README.md" "$STAGE/README.md"
 chmod 755 "$STAGE/install.sh" "$STAGE/uninstall.sh"
 
+# Release artifacts must not capture a developer-machine home directory.
+# Scan text and binary content alike so embedded absolute paths are caught.
+if grep -R -a -n '/Users/' "$STAGE" >/dev/null 2>&1; then
+    echo "error: release staging tree contains a machine-specific /Users/... path:" >&2
+    grep -R -a -n '/Users/' "$STAGE" >&2 || true
+    exit 1
+fi
+
 (
     cd "$DIST_ROOT"
     ARCHIVE_NAME="$(basename "$ARCHIVE")"
