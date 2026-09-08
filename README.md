@@ -2,7 +2,7 @@
 
 A macOS port of [`libinput-trackpoint-scroll`](https://github.com/BilinSun02/libinput-trackpoint-scroll), using the same pinned [`trackpoint-scroll-core`](https://github.com/BilinSun02/trackpoint-scroll-core) reconstruction/transfer engine.
 
-Current stable version: **1.0.2**.
+Current stable version: **1.1.0**.
 
 Tested adapter:
 
