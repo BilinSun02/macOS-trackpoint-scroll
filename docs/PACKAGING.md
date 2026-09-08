@@ -20,10 +20,11 @@ make clean
 make
 ```
 
-The executable should now be:
+The executables should now be:
 
 ```text
 build/macOS-trackpoint-scroll
+build/macOS-trackpoint-scroll-edge-pressure-helper
 ```
 
 ## 3. Create the binary release archive
@@ -35,9 +36,10 @@ make dist
 `make dist` runs `scripts/package-release.sh`. It:
 
 - creates a minimal `macOS-trackpoint-scroll.app` bundle around the already-built executable;
-- ad-hoc signs that app with `codesign --sign -`;
-- verifies the resulting signature;
-- includes the identity-free installer, uninstaller, default config example, README, and installation guide;
+- embeds the edge-pressure helper under `Contents/Helpers`;
+- ad-hoc signs the nested helper first, then the app bundle;
+- verifies both signatures;
+- includes the identity-free installer/uninstaller, root-helper installer/uninstaller, default config example, README, and installation guide;
 - writes a compressed release archive under `dist/`;
 - writes a SHA-256 checksum next to the archive.
 
@@ -70,6 +72,8 @@ You can also unpack it into a temporary directory and inspect the app signature:
 tmp="$(mktemp -d)"
 tar -xzf "dist/macOS-trackpoint-scroll-$(cat VERSION).tar.gz" -C "$tmp"
 codesign --verify --strict --verbose=2 \
+  "$tmp/macOS-trackpoint-scroll-$(cat VERSION)/macOS-trackpoint-scroll.app/Contents/Helpers/macOS-trackpoint-scroll-edge-pressure-helper"
+codesign --verify --strict --verbose=2 \
   "$tmp/macOS-trackpoint-scroll-$(cat VERSION)/macOS-trackpoint-scroll.app"
 rm -rf "$tmp"
 ```
@@ -89,10 +93,15 @@ Then check:
 
 ```sh
 launchctl print gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
+sudo launchctl print system/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper
+
 tail -f "$HOME/Library/Logs/macOS-trackpoint-scroll/stderr.log"
+sudo tail -f "/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log"
 ```
 
-The release installer deliberately does **not** run `make`, `clang`, `security find-identity`, or `codesign`. It only installs the prebuilt app and LaunchAgent.
+Exercise Dock reveal repeatedly, including after more than 30 seconds of idle time, to verify the Karabiner virtual-HID heartbeat/reconnect path.
+
+The release installer deliberately does **not** run `make`, `clang`, `security find-identity`, or `codesign`. It installs the prebuilt app/LaunchAgent and uses `sudo` only to install/start the already-built edge-pressure helper LaunchDaemon.
 
 ## 6. Publish
 
