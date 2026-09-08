@@ -43,11 +43,11 @@ make dist
 - writes a compressed release archive under `dist/`;
 - writes a SHA-256 checksum next to the archive.
 
-For version `1.0.2`, the output names are:
+For version `1.1.0`, the output names are:
 
 ```text
-dist/macOS-trackpoint-scroll-1.0.2.tar.gz
-dist/macOS-trackpoint-scroll-1.0.2.tar.gz.sha256
+dist/macOS-trackpoint-scroll-1.1.0.tar.gz
+dist/macOS-trackpoint-scroll-1.1.0.tar.gz.sha256
 ```
 
 The version comes from the repository's `VERSION` file.
