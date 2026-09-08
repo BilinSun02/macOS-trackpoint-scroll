@@ -7,6 +7,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "edge_pressure_client.h"
+#include "rebound_filter.h"
+
 #define TPSC_MAX_ACTIVE_DISPLAYS 32u
 #define TPSC_DOUBLE_CLICK_FALLBACK_SECONDS 0.5
 #define TPSC_DOUBLE_CLICK_SLOP_POINTS 4.0
@@ -25,6 +28,16 @@ struct click_tracker {
 static bool g_have_posted_pointer_position;
 static CGPoint g_posted_pointer_position;
 static CFAbsoluteTime g_posted_pointer_time;
+
+/*
+ * When hardware-class edge pressure is active on an axis, suppress Quartz
+ * pointer events until the TrackPoint genuinely reverses inward on that axis.
+ * This prevents synthetic events (including split-axis jitter) from resetting
+ * the Dock's edge state while the virtual HID helper supplies outward motion.
+ */
+static int g_edge_pressure_x;
+static int g_edge_pressure_y;
+static CGPoint g_edge_pressure_position;
 
 static struct click_tracker g_left_click;
 static struct click_tracker g_right_click;
@@ -286,22 +299,127 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
 
     annotate_button_event(type, event);
 
-    if (is_pointer_motion(type)) {
-        /*
-         * Quartz clamps the visible cursor to active display geometry, but the
-         * synthetic event itself may carry an out-of-bounds absolute position.
-         * Never cache that impossible position: otherwise repeated outward
-         * motion at a screen edge accumulates invisible overshoot that must be
-         * cancelled before inward motion becomes visible.
-         *
-         * Project first, then both post and cache the same realizable position.
-         * This preserves the split-axis composition fix without creating a
-         * hidden off-screen cursor reservoir.
-         */
-        CGPoint position = project_to_active_displays(CGEventGetLocation(event));
+    if (is_button_down(type) || is_button_up(type)) {
+        tpsc_rebound_filter_reset();
+        g_edge_pressure_x = 0;
+        g_edge_pressure_y = 0;
+    }
 
+    if (is_pointer_motion(type)) {
+        CGPoint requested = CGEventGetLocation(event);
+        CGPoint position;
+        int64_t dx = CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
+        int64_t dy = CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
+        bool had_edge_pressure = g_edge_pressure_x != 0 ||
+                                 g_edge_pressure_y != 0;
+        bool release_x = false;
+        bool release_y = false;
+
+        if (g_edge_pressure_x < 0)
+            release_x = dx > 0;
+        else if (g_edge_pressure_x > 0)
+            release_x = dx < 0;
+
+        if (g_edge_pressure_y < 0)
+            release_y = dy > 0;
+        else if (g_edge_pressure_y > 0)
+            release_y = dy < 0;
+
+        if (release_x)
+            g_edge_pressure_x = 0;
+        if (release_y)
+            g_edge_pressure_y = 0;
+
+        /*
+         * While still pressing an edge, only the latched outward components
+         * are forwarded through the virtual HID helper. All Quartz pointer
+         * events, including orthogonal split-axis callbacks, stay silent.
+         */
+        if (type == kCGEventMouseMoved &&
+            had_edge_pressure &&
+            (g_edge_pressure_x != 0 || g_edge_pressure_y != 0)) {
+            int64_t pressure_x = 0;
+            int64_t pressure_y = 0;
+
+            if ((g_edge_pressure_x < 0 && dx < 0) ||
+                (g_edge_pressure_x > 0 && dx > 0))
+                pressure_x = dx;
+            if ((g_edge_pressure_y < 0 && dy < 0) ||
+                (g_edge_pressure_y > 0 && dy > 0))
+                pressure_y = dy;
+
+            if (pressure_x != 0 || pressure_y != 0)
+                (void)tpsc_edge_pressure_post(pressure_x, pressure_y);
+
+            position = g_edge_pressure_position;
+            CGEventSetLocation(event, position);
+            annotate_drag_event(type, event, position);
+            tpsc_rebound_filter_observe(type, event);
+
+            g_posted_pointer_position = position;
+            g_posted_pointer_time = CFAbsoluteTimeGetCurrent();
+            g_have_posted_pointer_position = true;
+            return;
+        }
+
+        position = project_to_active_displays(requested);
+
+        /*
+         * Detect the first motion that would cross a display boundary. If the
+         * privileged helper is available, send only the outward component as a
+         * real virtual-HID relative report and suppress this Quartz event.
+         * The helper-driven report physically reaches/presses the edge, while
+         * our cache remains clamped so no hidden overshoot accumulates.
+         */
+        {
+            int edge_x = 0;
+            int edge_y = 0;
+            int64_t pressure_x = 0;
+            int64_t pressure_y = 0;
+
+            if (requested.x < position.x) {
+                edge_x = -1;
+                pressure_x = dx;
+            } else if (requested.x > position.x) {
+                edge_x = 1;
+                pressure_x = dx;
+            }
+
+            if (requested.y < position.y) {
+                edge_y = -1;
+                pressure_y = dy;
+            } else if (requested.y > position.y) {
+                edge_y = 1;
+                pressure_y = dy;
+            }
+
+            if (type == kCGEventMouseMoved &&
+                (edge_x != 0 || edge_y != 0) &&
+                tpsc_edge_pressure_post(pressure_x, pressure_y)) {
+                g_edge_pressure_x = edge_x;
+                g_edge_pressure_y = edge_y;
+                g_edge_pressure_position = position;
+
+                CGEventSetLocation(event, position);
+                annotate_drag_event(type, event, position);
+                tpsc_rebound_filter_observe(type, event);
+
+                g_posted_pointer_position = position;
+                g_posted_pointer_time = CFAbsoluteTimeGetCurrent();
+                g_have_posted_pointer_position = true;
+                return;
+            }
+        }
+
+        /*
+         * Normal path: Quartz carries pointer motion everywhere away from an
+         * actively pressed display edge. Project and cache the same realizable
+         * position to preserve split-axis composition without hidden overshoot.
+         */
         CGEventSetLocation(event, position);
         annotate_drag_event(type, event, position);
+        tpsc_rebound_filter_observe(type, event);
+
         g_posted_pointer_position = position;
         g_posted_pointer_time = CFAbsoluteTimeGetCurrent();
         g_have_posted_pointer_position = true;
