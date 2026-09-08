@@ -8,7 +8,7 @@
 #include <stdint.h>
 
 #include "edge_pressure_client.h"
-#include "rebound_filter.h"
+#include "pointer_rebound.h"
 
 #define TPSC_MAX_ACTIVE_DISPLAYS 32u
 #define TPSC_DOUBLE_CLICK_FALLBACK_SECONDS 0.5
@@ -300,7 +300,7 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
     annotate_button_event(type, event);
 
     if (is_button_down(type) || is_button_up(type)) {
-        tpsc_rebound_filter_reset();
+        tpsc_pointer_rebound_reset();
         g_edge_pressure_x = 0;
         g_edge_pressure_y = 0;
     }
@@ -354,7 +354,7 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
             position = g_edge_pressure_position;
             CGEventSetLocation(event, position);
             annotate_drag_event(type, event, position);
-            tpsc_rebound_filter_observe(type, event);
+            tpsc_pointer_rebound_observe(type, event);
 
             g_posted_pointer_position = position;
             g_posted_pointer_time = CFAbsoluteTimeGetCurrent();
@@ -402,7 +402,7 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
 
                 CGEventSetLocation(event, position);
                 annotate_drag_event(type, event, position);
-                tpsc_rebound_filter_observe(type, event);
+                tpsc_pointer_rebound_observe(type, event);
 
                 g_posted_pointer_position = position;
                 g_posted_pointer_time = CFAbsoluteTimeGetCurrent();
@@ -418,7 +418,7 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
          */
         CGEventSetLocation(event, position);
         annotate_drag_event(type, event, position);
-        tpsc_rebound_filter_observe(type, event);
+        tpsc_pointer_rebound_observe(type, event);
 
         g_posted_pointer_position = position;
         g_posted_pointer_time = CFAbsoluteTimeGetCurrent();
