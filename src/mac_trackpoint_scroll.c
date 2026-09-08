@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "edge_pressure_client.h"
 #include "trackpoint_scroll/engine.h"
 #include "trackpoint_scroll/profiles.h"
 
@@ -41,6 +42,7 @@ struct app {
     CGPoint scroll_anchor;
 
     bool seize;
+    bool edge_pressure_helper;
     bool verbose;
     bool suppress_middle_click;
     bool middle_down;
@@ -91,6 +93,7 @@ usage(const char *argv0)
             "  --invert-y              reverse vertical scroll direction\n"
             "  --allow-middle-click    do not suppress Quartz middle clicks\n"
             "  --seize                 exclusively claim the HID device\n"
+            "  --edge-pressure-helper  use privileged virtual-HID helper at display edges\n"
             "  --verbose               print device/gesture diagnostics\n"
             "  --help                  show this text\n",
             argv0);
@@ -150,6 +153,8 @@ parse_args(struct app *app, int argc, char **argv)
             app->verbose = true;
         } else if (strcmp(argv[i], "--seize") == 0) {
             app->seize = true;
+        } else if (strcmp(argv[i], "--edge-pressure-helper") == 0) {
+            app->edge_pressure_helper = true;
         } else if (strcmp(argv[i], "--allow-middle-click") == 0) {
             app->suppress_middle_click = false;
         } else if (strcmp(argv[i], "--invert-x") == 0) {
@@ -750,6 +755,13 @@ main(int argc, char **argv)
         return 2;
     }
 
+    if (app.edge_pressure_helper && !app.seize) {
+        fprintf(stderr,
+                "trackpoint: --edge-pressure-helper requires --seize\n");
+        return 2;
+    }
+    tpsc_edge_pressure_client_set_enabled(app.edge_pressure_helper);
+
     if (setup_core(&app) != 0 ||
         setup_event_tap(&app) != 0 ||
         setup_tick_timer(&app) != 0 ||
@@ -762,7 +774,10 @@ main(int argc, char **argv)
             "trackpoint: running for vid=%04x pid=%04x, scale=%g, direction=%s%s\n",
             app.vendor_id, app.product_id, app.scroll_scale,
             config.natural_scroll ? "natural" : "traditional",
-            app.seize ? " [exclusive seize mode]" : "");
+            app.seize ? (app.edge_pressure_helper
+                             ? " [exclusive seize + virtual-HID edge pressure]"
+                             : " [exclusive seize mode]")
+                      : "");
     CFRunLoopRun();
     cleanup(&app);
     return 0;
