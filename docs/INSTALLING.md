@@ -118,6 +118,15 @@ The per-user configuration file is:
 
 The installer does not overwrite an existing config.
 
+The terminal TrackPoint rebound correction is optional and off by default:
+
+```text
+rebound_filter=false
+```
+
+Set `rebound_filter=true` only if you want the validated retrospective
+exact-undo correction. It does not gate or delay live reversal.
+
 After editing the config, restart the agent:
 
 ```sh
