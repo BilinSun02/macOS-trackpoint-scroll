@@ -4,6 +4,12 @@ The prebuilt release is intended for a Mac that does **not** have Xcode, a compi
 
 It is ad-hoc signed rather than Developer-ID signed or notarized. The installer clears quarantine from the installed copy after you explicitly run it.
 
+## Prerequisite: Karabiner virtual HID
+
+Dock auto-hide edge pressure requires **Karabiner-DriverKit-VirtualHIDDevice** to be installed and enabled. The TrackPoint daemon remains a normal user process; a small root helper forwards only display-edge pressure through Karabiner's DriverKit virtual mouse.
+
+If you already use Karabiner-Elements, its virtual HID device is normally present. The installer checks for the Karabiner virtual-HID daemon/socket before installing the helper.
+
 ## 1. Download the release
 
 Download both files for the desired version from GitHub Releases:
@@ -45,9 +51,11 @@ The installer:
 - preserves an existing `~/.config/macOS-trackpoint-scroll.conf`;
 - otherwise installs the included default config;
 - installs `~/Library/LaunchAgents/io.github.bilinsun02.macos-trackpoint-scroll.plist`;
-- starts the LaunchAgent immediately.
+- prompts once for `sudo` to install the root edge-pressure helper under `/Library/PrivilegedHelperTools`;
+- installs its LaunchDaemon under `/Library/LaunchDaemons`;
+- starts both services immediately.
 
-It does **not** compile or sign anything on the destination Mac.
+It does **not** compile or sign anything on the destination Mac. The main TrackPoint daemon still runs as the logged-in user; only the narrow edge-pressure helper runs as root.
 
 ## 5. Grant macOS privacy permissions
 
@@ -86,7 +94,19 @@ Logs:
 tail -f "$HOME/Library/Logs/macOS-trackpoint-scroll/stderr.log"
 ```
 
-The agent starts automatically at login. No Terminal window needs to remain open.
+Edge-pressure helper status:
+
+```sh
+sudo launchctl print system/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper
+```
+
+Edge-pressure helper logs:
+
+```sh
+sudo tail -f "/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log"
+```
+
+The user agent and root helper start automatically. No Terminal window needs to remain open.
 
 ## Configuration
 
@@ -118,7 +138,7 @@ From the extracted release directory:
 ./uninstall.sh
 ```
 
-This removes the LaunchAgent and installed app. Configuration and logs are intentionally left in place.
+This removes the LaunchAgent, installed app, root edge-pressure LaunchDaemon, and privileged helper. Configuration and logs are intentionally left in place. Uninstall prompts for `sudo` to remove the privileged helper.
 
 ## Gatekeeper / quarantine note
 
