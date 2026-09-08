@@ -6,10 +6,13 @@ BUNDLE_ID="$LABEL"
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 VERSION="$(cat "$ROOT/VERSION")"
 SOURCE_BIN="$ROOT/build/macOS-trackpoint-scroll"
+SOURCE_HELPER="$ROOT/build/macOS-trackpoint-scroll-edge-pressure-helper"
 APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
+HELPERS_DIR="$CONTENTS_DIR/Helpers"
 INSTALL_BIN="$MACOS_DIR/macOS-trackpoint-scroll"
+BUNDLE_HELPER="$HELPERS_DIR/macOS-trackpoint-scroll-edge-pressure-helper"
 LEGACY_INSTALL_DIR="$HOME/Library/Application Support/macOS-trackpoint-scroll"
 CONFIG_DIR="$HOME/.config"
 CONFIG_PATH="$CONFIG_DIR/macOS-trackpoint-scroll.conf"
@@ -21,6 +24,10 @@ UID_NUM="$(id -u)"
 
 if [ ! -x "$SOURCE_BIN" ]; then
     echo "error: $SOURCE_BIN is missing; run make first" >&2
+    exit 1
+fi
+if [ ! -x "$SOURCE_HELPER" ]; then
+    echo "error: $SOURCE_HELPER is missing; run make first" >&2
     exit 1
 fi
 
@@ -41,14 +48,15 @@ EOF
     exit 1
 fi
 
-mkdir -p "$MACOS_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR" "$HOME/Applications"
+mkdir -p "$MACOS_DIR" "$HELPERS_DIR" "$CONFIG_DIR" "$AGENT_DIR" "$LOG_DIR" "$HOME/Applications"
 rm -rf "$LEGACY_INSTALL_DIR"
 
 # Stop the previous agent before replacing/signing the app.
 launchctl bootout "gui/$UID_NUM" "$PLIST" >/dev/null 2>&1 || true
 
 cp "$SOURCE_BIN" "$INSTALL_BIN"
-chmod 755 "$INSTALL_BIN"
+cp "$SOURCE_HELPER" "$BUNDLE_HELPER"
+chmod 755 "$INSTALL_BIN" "$BUNDLE_HELPER"
 
 cat >"$CONTENTS_DIR/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -79,8 +87,10 @@ EOF
 
 plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
 
-# A persistent certificate plus the stable bundle identifier gives TCC a stable
-# code identity across rebuilds. Ad-hoc signing is intentionally not supported.
+# Sign the nested privileged helper first, then the containing app. A persistent
+# certificate plus the stable bundle identifier gives TCC a stable app identity
+# across rebuilds. Ad-hoc signing is intentionally not supported here.
+codesign --force --sign "$SIGN_IDENTITY" "$BUNDLE_HELPER"
 codesign --force --sign "$SIGN_IDENTITY" --identifier "$BUNDLE_ID" "$APP_DIR"
 codesign --verify --strict --verbose=2 "$APP_DIR"
 
@@ -88,6 +98,9 @@ echo "code-signing identity:"
 codesign --display --verbose=1 "$APP_DIR" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier)=' || true
 echo "designated requirement:"
 codesign --display --requirements - "$APP_DIR" 2>&1 | sed -n 's/^designated => /  /p'
+
+echo "Installing the root edge-pressure helper (sudo required)..."
+sudo sh "$ROOT/scripts/install-helper-root.sh" "$BUNDLE_HELPER" "$UID_NUM"
 
 if [ ! -e "$CONFIG_PATH" ]; then
     cp "$EXAMPLE_CONFIG" "$CONFIG_PATH"
@@ -106,6 +119,7 @@ cat >"$PLIST" <<EOF
     <array>
         <string>$INSTALL_BIN</string>
         <string>--seize</string>
+        <string>--edge-pressure-helper</string>
         <string>--verbose</string>
         <string>--config</string>
         <string>$CONFIG_PATH</string>
@@ -133,6 +147,7 @@ echo "application: $APP_DIR"
 echo "binary:      $INSTALL_BIN"
 echo "config:      $CONFIG_PATH"
 echo "logs:        $LOG_DIR"
+echo "edge helper: /Library/PrivilegedHelperTools/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
 echo
 echo "Required macOS privacy grants for the application:"
 echo "  System Settings > Privacy & Security > Input Monitoring"
@@ -146,3 +161,9 @@ echo "  launchctl kickstart -k gui/$UID_NUM/$LABEL"
 echo
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
+
+echo
+echo "edge helper status:"
+echo "  sudo launchctl print system/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
+echo "edge helper logs:"
+echo "  sudo tail -f '/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log'"
