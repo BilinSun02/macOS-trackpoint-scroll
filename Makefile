@@ -11,9 +11,10 @@ OBJ := \
 	build/config.o \
 	build/edge_pressure_client.o \
 	build/event_shim.o \
-	build/rebound_filter.o \
+	build/pointer_rebound.o \
 	build/pointer_hid_shim.o \
 	build/engine.o \
+	build/core_rebound.o \
 	build/profiles.o
 
 HELPER_OBJ := \
@@ -33,7 +34,7 @@ $(BIN): $(OBJ)
 $(HELPER_BIN): $(HELPER_OBJ)
 	$(CC) $(HELPER_OBJ) -o $@
 
-build/mac_trackpoint_scroll.o: src/mac_trackpoint_scroll.c src/config.h src/event_shim.h src/edge_pressure_client.h
+build/mac_trackpoint_scroll.o: src/mac_trackpoint_scroll.c src/config.h src/event_shim.h src/edge_pressure_client.h src/pointer_rebound.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) \
 		-DIOHIDValueGetIntegerValue=tpsc_pointer_value_get_integer_value \
@@ -47,15 +48,15 @@ build/edge_pressure_client.o: src/edge_pressure_client.c src/edge_pressure_clien
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/event_shim.o: src/event_shim.c src/event_shim.h src/rebound_filter.h src/edge_pressure_client.h
+build/event_shim.o: src/event_shim.c src/event_shim.h src/pointer_rebound.h src/edge_pressure_client.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/rebound_filter.o: src/rebound_filter.c src/rebound_filter.h
+build/pointer_rebound.o: src/pointer_rebound.c src/pointer_rebound.h core/include/trackpoint_scroll/rebound.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/pointer_hid_shim.o: src/pointer_hid_shim.c src/config.h src/rebound_filter.h
+build/pointer_hid_shim.o: src/pointer_hid_shim.c src/config.h src/pointer_rebound.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -68,6 +69,10 @@ build/karabiner_vhid.o: src/karabiner_vhid.c src/karabiner_vhid.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 build/engine.o: core/src/engine.c core/include/trackpoint_scroll/engine.h
+	@mkdir -p build
+	$(CC) $(CFLAGS) -c $< -o $@
+
+build/core_rebound.o: core/src/rebound.c core/include/trackpoint_scroll/rebound.h core/include/trackpoint_scroll/engine.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
