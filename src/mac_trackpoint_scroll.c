@@ -16,6 +16,7 @@
 
 #include "config.h"
 #include "edge_pressure_client.h"
+#include "pointer_rebound.h"
 #include "trackpoint_scroll/engine.h"
 #include "trackpoint_scroll/profiles.h"
 
@@ -716,6 +717,7 @@ cleanup(struct app *app)
     }
     if (app->event_tap)
         CFRelease(app->event_tap);
+    tpsc_pointer_rebound_set_enabled(false);
     tpsc_engine_destroy(app->engine);
 }
 
@@ -761,6 +763,8 @@ main(int argc, char **argv)
         return 2;
     }
     tpsc_edge_pressure_client_set_enabled(app.edge_pressure_helper);
+    if (tpsc_pointer_rebound_set_enabled(config.rebound_filter) != 0)
+        return 1;
 
     if (setup_core(&app) != 0 ||
         setup_event_tap(&app) != 0 ||
