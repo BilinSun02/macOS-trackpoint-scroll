@@ -5,8 +5,11 @@ LABEL="io.github.bilinsun02.macos-trackpoint-scroll"
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SOURCE_APP="$ROOT/macOS-trackpoint-scroll.app"
 SOURCE_BIN="$SOURCE_APP/Contents/MacOS/macOS-trackpoint-scroll"
+SOURCE_HELPER="$SOURCE_APP/Contents/Helpers/macOS-trackpoint-scroll-edge-pressure-helper"
 APP_DIR="$HOME/Applications/macOS-trackpoint-scroll.app"
 INSTALL_BIN="$APP_DIR/Contents/MacOS/macOS-trackpoint-scroll"
+INSTALL_HELPER="$APP_DIR/Contents/Helpers/macOS-trackpoint-scroll-edge-pressure-helper"
+ROOT_HELPER_INSTALLER="$ROOT/install-helper-root.sh"
 LEGACY_INSTALL_DIR="$HOME/Library/Application Support/macOS-trackpoint-scroll"
 CONFIG_DIR="$HOME/.config"
 CONFIG_PATH="$CONFIG_DIR/macOS-trackpoint-scroll.conf"
@@ -18,6 +21,14 @@ UID_NUM="$(id -u)"
 
 if [ ! -x "$SOURCE_BIN" ]; then
     echo "error: release bundle is incomplete: $SOURCE_BIN is missing" >&2
+    exit 1
+fi
+if [ ! -x "$SOURCE_HELPER" ]; then
+    echo "error: release bundle is incomplete: $SOURCE_HELPER is missing" >&2
+    exit 1
+fi
+if [ ! -f "$ROOT_HELPER_INSTALLER" ]; then
+    echo "error: release bundle is incomplete: $ROOT_HELPER_INSTALLER is missing" >&2
     exit 1
 fi
 
@@ -33,6 +44,9 @@ ditto "$SOURCE_APP" "$APP_DIR"
 # intentionally not Developer-ID signed or notarized, so clear quarantine only
 # from the installed copy after the user explicitly runs this installer.
 xattr -dr com.apple.quarantine "$APP_DIR" >/dev/null 2>&1 || true
+
+echo "Installing the root edge-pressure helper (sudo required)..."
+sudo sh "$ROOT_HELPER_INSTALLER" "$INSTALL_HELPER" "$UID_NUM"
 
 if [ ! -e "$CONFIG_PATH" ]; then
     cp "$EXAMPLE_CONFIG" "$CONFIG_PATH"
@@ -51,6 +65,7 @@ cat >"$PLIST" <<EOF
     <array>
         <string>$INSTALL_BIN</string>
         <string>--seize</string>
+        <string>--edge-pressure-helper</string>
         <string>--verbose</string>
         <string>--config</string>
         <string>$CONFIG_PATH</string>
@@ -78,6 +93,7 @@ echo "application: $APP_DIR"
 echo "binary:      $INSTALL_BIN"
 echo "config:      $CONFIG_PATH"
 echo "logs:        $LOG_DIR"
+echo "edge helper: /Library/PrivilegedHelperTools/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
 echo
 echo "No Xcode, compiler, or code-signing identity was used on this Mac."
 echo
@@ -91,3 +107,9 @@ echo "  launchctl kickstart -k gui/$UID_NUM/$LABEL"
 echo
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
+
+echo
+echo "edge helper status:"
+echo "  sudo launchctl print system/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
+echo "edge helper logs:"
+echo "  sudo tail -f '/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log'"
