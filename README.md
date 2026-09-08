@@ -17,11 +17,30 @@ The hardware-validated path uses exclusive HID ownership (`--seize`). The daemon
 - forwards ordinary left/right buttons and pointer motion through Quartz;
 - applies an optional raw-HID pointer speed/acceleration curve to ordinary motion;
 - converts middle-button motion into continuous pixel scrolling through `trackpoint-scroll-core`;
-- keeps scrolling on raw TrackPoint deltas, independent of the pointer curve.
+- keeps scrolling on raw TrackPoint deltas, independent of the pointer curve;
+- forwards only sustained outward motion at a display edge through Karabiner's DriverKit virtual mouse, giving macOS genuine HID-class edge pressure for auto-hidden Dock reveal.
 
 The adapter reports X and Y as separate HID element callbacks. `event_shim.c` keeps a short cache of the most recently posted synthetic cursor position so split-axis reports compose instead of overwriting one another. Synthetic positions are projected onto active display geometry before posting/caching so sustained motion into a screen edge cannot accumulate invisible off-screen overshoot.
 
 Synthetic button events also carry Quartz click-state and event-number bookkeeping, so double-click, triple-click, and click-drag behavior matches ordinary macOS mouse events.
+
+### Dock edge pressure
+
+CoreGraphics-generated pointer events can visually pin the cursor at a display boundary but do not reproduce the hardware edge-pressure semantics used by the auto-hidden Dock. The daemon therefore keeps the normal Quartz path everywhere except active display-edge pressure.
+
+A tiny root LaunchDaemon accepts only relative `(dx, dy)` pressure reports from the logged-in user's daemon over a user-owned `0600` Unix socket. It forwards those reports through **Karabiner-DriverKit-VirtualHIDDevice**, whose DriverKit virtual mouse is seen by macOS as HID-class pointing hardware. When motion reverses inward, the edge-pressure latch releases immediately and ordinary Quartz forwarding resumes.
+
+This requires Karabiner's virtual HID device/daemon to be installed and enabled. The helper is installed at:
+
+```text
+/Library/PrivilegedHelperTools/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper
+```
+
+and managed by:
+
+```text
+/Library/LaunchDaemons/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper.plist
+```
 
 Pointer acceleration is applied before Quartz event creation, using the original `IOHIDValueGetTimeStamp()` timestamps. The default `pointer_acceleration=0` is a linear/no-acceleration path.
 
@@ -90,7 +109,7 @@ The per-user LaunchAgent is installed at:
 ~/Library/LaunchAgents/io.github.bilinsun02.macos-trackpoint-scroll.plist
 ```
 
-The LaunchAgent runs the app executable with `--seize` in the logged-in GUI session.
+The LaunchAgent runs the app executable with `--seize --edge-pressure-helper` in the logged-in GUI session. Installation prompts once for `sudo` to install/start the narrow root edge-pressure helper; the main TrackPoint daemon itself remains a normal user process.
 
 ### macOS privacy permissions
 
