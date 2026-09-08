@@ -55,6 +55,8 @@ struct app {
 
 static mach_timebase_info_data_t g_timebase;
 
+static void post_button(CGEventType type, CGMouseButton button);
+
 static uint64_t
 mach_ticks_to_us(uint64_t ticks)
 {
