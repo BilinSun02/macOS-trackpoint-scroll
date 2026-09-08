@@ -7,6 +7,7 @@ struct macos_trackpoint_config {
     bool natural_scroll;
     double scroll_scale;
     bool suppress_middle_click;
+    bool rebound_filter;
     double pointer_speed;
     double pointer_acceleration;
     double pointer_acceleration_velocity;
