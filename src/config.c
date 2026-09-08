@@ -69,6 +69,7 @@ macos_trackpoint_config_defaults(struct macos_trackpoint_config *cfg)
     cfg->natural_scroll = false;
     cfg->scroll_scale = 8.0;
     cfg->suppress_middle_click = true;
+    cfg->rebound_filter = false;
     cfg->pointer_speed = 1.0;
     cfg->pointer_acceleration = 0.0;
     cfg->pointer_acceleration_velocity = 0.10;
@@ -145,6 +146,9 @@ macos_trackpoint_config_load(struct macos_trackpoint_config *cfg,
                 goto invalid_value;
         } else if (strcmp(key, "suppress_middle_click") == 0) {
             if (parse_bool(value, &cfg->suppress_middle_click) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "rebound_filter") == 0) {
+            if (parse_bool(value, &cfg->rebound_filter) != 0)
                 goto invalid_value;
         } else if (strcmp(key, "pointer_speed") == 0) {
             if (parse_positive_double(value, &cfg->pointer_speed) != 0)
