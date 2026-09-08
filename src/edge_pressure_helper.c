@@ -210,8 +210,44 @@ main(int argc, char **argv)
             (unsigned)allowed_uid, g_socket_path);
 
     while (!g_exit_requested) {
-        int fd = accept(g_listen_fd, NULL, NULL);
+        struct pollfd pfd = {
+            .fd = g_listen_fd,
+            .events = POLLIN,
+        };
+        int pr;
+        int fd;
 
+        do {
+            pr = poll(&pfd, 1, 2500);
+        } while (pr < 0 && errno == EINTR);
+
+        if (pr == 0) {
+            /*
+             * The helper may sit here before the user daemon first reaches an
+             * edge. Keep Karabiner's root-only virtual-HID connection alive
+             * even when no user client has connected yet.
+             */
+            if (!tpsc_vhid_keepalive()) {
+                fprintf(stderr,
+                        "edge-pressure-helper: virtual HID keepalive failed\n");
+            }
+            continue;
+        }
+
+        if (pr < 0) {
+            if (g_exit_requested)
+                break;
+            fprintf(stderr, "edge-pressure-helper: listen poll: %s\n",
+                    strerror(errno));
+            continue;
+        }
+
+        if ((pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) != 0)
+            break;
+        if ((pfd.revents & POLLIN) == 0)
+            continue;
+
+        fd = accept(g_listen_fd, NULL, NULL);
         if (fd < 0) {
             if (errno == EINTR)
                 continue;
