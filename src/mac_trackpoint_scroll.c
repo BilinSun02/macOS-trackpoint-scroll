@@ -247,6 +247,14 @@ device_matched(void *context, IOReturn result, void *sender,
     (void)result;
     (void)sender;
 
+    /*
+     * A newly matched HID device starts a fresh physical button-state epoch.
+     * Any old synthetic pressed state should already have been released from
+     * device_removed(); do not inherit stale booleans into the new device.
+     */
+    app->middle_down = false;
+    app->left_down = false;
+    app->right_down = false;
     app->target_present = true;
     fprintf(stderr, "trackpoint: matched HID device ");
     print_cf_string_property(device, CFSTR(kIOHIDProductKey));
@@ -264,6 +272,20 @@ device_removed(void *context, IOReturn result, void *sender,
     (void)sender;
     (void)device;
 
+    /*
+     * We own the device in seize mode, so a disconnect can otherwise strand
+     * the synthetic Quartz button state at "down" forever. Release every
+     * pressed button before forgetting the raw-HID state.
+     */
+    if (app->seize) {
+        if (app->left_down)
+            post_button(kCGEventLeftMouseUp, kCGMouseButtonLeft);
+        if (app->right_down)
+            post_button(kCGEventRightMouseUp, kCGMouseButtonRight);
+        if (app->middle_down && !app->suppress_middle_click)
+            post_button(kCGEventOtherMouseUp, kCGMouseButtonCenter);
+    }
+
     app->target_present = false;
     app->middle_down = false;
     app->left_down = false;
@@ -271,6 +293,7 @@ device_removed(void *context, IOReturn result, void *sender,
     app->have_scroll_anchor = false;
     app->point_remainder_x = 0.0;
     app->point_remainder_y = 0.0;
+    tpsc_pointer_rebound_reset();
     (void)tpsc_engine_end(app->engine, now_us());
     fprintf(stderr, "trackpoint: target HID device removed\n");
 }
@@ -404,9 +427,17 @@ middle_transition(struct app *app, bool down, uint64_t time_us)
 static void
 handle_button(struct app *app, uint32_t usage, bool down, uint64_t time_us)
 {
+    bool *state = NULL;
+    CGEventType down_type;
+    CGEventType up_type;
+    CGMouseButton button;
+    const char *name;
+
     if (usage == MIDDLE_BUTTON_USAGE) {
+        bool changed = down != app->middle_down;
+
         middle_transition(app, down, time_us);
-        if (app->seize && !app->suppress_middle_click)
+        if (changed && app->seize && !app->suppress_middle_click)
             post_button(down ? kCGEventOtherMouseDown : kCGEventOtherMouseUp,
                         kCGMouseButtonCenter);
         return;
@@ -416,14 +447,41 @@ handle_button(struct app *app, uint32_t usage, bool down, uint64_t time_us)
         return;
 
     if (usage == 1) {
-        app->left_down = down;
-        post_button(down ? kCGEventLeftMouseDown : kCGEventLeftMouseUp,
-                    kCGMouseButtonLeft);
+        state = &app->left_down;
+        down_type = kCGEventLeftMouseDown;
+        up_type = kCGEventLeftMouseUp;
+        button = kCGMouseButtonLeft;
+        name = "left";
     } else if (usage == 2) {
-        app->right_down = down;
-        post_button(down ? kCGEventRightMouseDown : kCGEventRightMouseUp,
-                    kCGMouseButtonRight);
+        state = &app->right_down;
+        down_type = kCGEventRightMouseDown;
+        up_type = kCGEventRightMouseUp;
+        button = kCGMouseButtonRight;
+        name = "right";
+    } else {
+        return;
     }
+
+    /*
+     * IOHID input-value callbacks are not a button transition API. Some
+     * devices/adapters can report the current button value repeatedly in later
+     * input reports. Posting duplicate mouse-down events can desynchronize
+     * WindowServer's synthetic button state from our raw-HID state.
+     */
+    if (down == *state) {
+        if (app->verbose)
+            fprintf(stderr,
+                    "trackpoint: ignored duplicate %s button %s\n",
+                    name, down ? "down" : "up");
+        return;
+    }
+
+    *state = down;
+    post_button(down ? down_type : up_type, button);
+
+    if (app->verbose)
+        fprintf(stderr, "trackpoint: %s button %s\n",
+                name, down ? "down" : "up");
 }
 
 static void
