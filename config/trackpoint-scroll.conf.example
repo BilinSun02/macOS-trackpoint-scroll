@@ -21,3 +21,7 @@ pointer_acceleration=0.0
 # Raw speed in counts/ms at which half of the configured extra acceleration
 # is active. This setting is ignored when pointer_acceleration=0.0.
 pointer_acceleration_velocity=0.10
+
+# Retrospectively undo a short, small terminal TrackPoint reversal.
+# Disabled by default; live reversal is never delayed or suppressed.
+rebound_filter=false
