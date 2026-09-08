@@ -12,7 +12,7 @@
 #include <string.h>
 
 #include "config.h"
-#include "rebound_filter.h"
+#include "pointer_rebound.h"
 
 #define POINTER_IDLE_RESET_US 333333ULL
 #define MIDDLE_BUTTON_USAGE 3u
@@ -240,7 +240,7 @@ tpsc_pointer_value_get_integer_value(IOHIDValueRef value)
         if (down != g_pointer.middle_down) {
             g_pointer.middle_down = down;
             reset_motion_state();
-            tpsc_rebound_filter_reset();
+            tpsc_pointer_rebound_reset();
         }
         return native_value;
     }
