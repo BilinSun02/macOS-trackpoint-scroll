@@ -61,6 +61,8 @@ cat >"$PLIST" <<EOF
 <dict>
     <key>Label</key>
     <string>$LABEL</string>
+    <key>AssociatedBundleIdentifiers</key>
+    <string>$LABEL</string>
     <key>ProgramArguments</key>
     <array>
         <string>$INSTALL_BIN</string>
