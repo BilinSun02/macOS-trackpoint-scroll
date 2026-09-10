@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +42,53 @@ parse_bool(const char *s, bool *out)
 }
 
 static int
+parse_finite_double(const char *s, double *out)
+{
+    char *end = NULL;
+    double value;
+
+    errno = 0;
+    value = strtod(s, &end);
+    if (errno != 0 || end == s || *trim(end) != '\0' || !isfinite(value))
+        return -1;
+    *out = value;
+    return 0;
+}
+
+static int
+parse_int_at_least(const char *s, int minimum, int *out)
+{
+    char *end = NULL;
+    long value;
+
+    errno = 0;
+    value = strtol(s, &end, 10);
+    if (errno != 0 || end == s || *trim(end) != '\0' ||
+        value < minimum || value > INT_MAX)
+        return -1;
+    *out = (int)value;
+    return 0;
+}
+
+static int
+parse_profile(const char *s, enum tpsc_profile_kind *out)
+{
+    if (strcasecmp(s, "affine") == 0) {
+        *out = TPSC_PROFILE_AFFINE;
+        return 0;
+    }
+    if (strcasecmp(s, "quadratic") == 0) {
+        *out = TPSC_PROFILE_QUADRATIC;
+        return 0;
+    }
+    if (strcasecmp(s, "hyperbolic") == 0) {
+        *out = TPSC_PROFILE_HYPERBOLIC;
+        return 0;
+    }
+    return -1;
+}
+
+static int
 parse_nonnegative_double(const char *s, double *out)
 {
     char *end = NULL;
@@ -68,6 +116,25 @@ macos_trackpoint_config_defaults(struct macos_trackpoint_config *cfg)
 {
     cfg->natural_scroll = false;
     cfg->scroll_scale = 8.0;
+
+    cfg->profile = TPSC_PROFILE_HYPERBOLIC;
+    cfg->clamp_negative_output = false;
+    cfg->first_step_distance = 0.4;
+    cfg->first_step_axis_merge_ms = 70.0;
+    cfg->first_step_max_reports = -1;
+    cfg->idle_reset_ms = 333.3;
+
+    cfg->affine_k = 0.4;
+    cfg->affine_b = 0.0;
+
+    cfg->quadratic_a = 0.16;
+    cfg->quadratic_h = 0.0;
+    cfg->quadratic_k = 0.025;
+
+    cfg->hyperbolic_a = 0.75;
+    cfg->hyperbolic_u = 1.6;
+    cfg->hyperbolic_k = -1.175;
+
     cfg->suppress_middle_click = true;
     cfg->rebound_filter = false;
     cfg->pointer_speed = 1.0;
@@ -143,6 +210,50 @@ macos_trackpoint_config_load(struct macos_trackpoint_config *cfg,
                 goto invalid_value;
         } else if (strcmp(key, "scroll_scale") == 0) {
             if (parse_positive_double(value, &cfg->scroll_scale) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "profile") == 0) {
+            if (parse_profile(value, &cfg->profile) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "clamp_negative_output") == 0) {
+            if (parse_bool(value, &cfg->clamp_negative_output) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "first_step_distance") == 0) {
+            if (parse_nonnegative_double(value, &cfg->first_step_distance) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "first_step_axis_merge_ms") == 0) {
+            if (parse_nonnegative_double(value,
+                                         &cfg->first_step_axis_merge_ms) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "first_step_max_reports") == 0) {
+            if (parse_int_at_least(value, -1,
+                                   &cfg->first_step_max_reports) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "idle_reset_ms") == 0) {
+            if (parse_nonnegative_double(value, &cfg->idle_reset_ms) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "affine_k") == 0) {
+            if (parse_finite_double(value, &cfg->affine_k) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "affine_b") == 0) {
+            if (parse_finite_double(value, &cfg->affine_b) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "quadratic_a") == 0) {
+            if (parse_finite_double(value, &cfg->quadratic_a) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "quadratic_h") == 0) {
+            if (parse_finite_double(value, &cfg->quadratic_h) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "quadratic_k") == 0) {
+            if (parse_finite_double(value, &cfg->quadratic_k) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "hyperbolic_a") == 0) {
+            if (parse_finite_double(value, &cfg->hyperbolic_a) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "hyperbolic_u") == 0) {
+            if (parse_finite_double(value, &cfg->hyperbolic_u) != 0)
+                goto invalid_value;
+        } else if (strcmp(key, "hyperbolic_k") == 0) {
+            if (parse_finite_double(value, &cfg->hyperbolic_k) != 0)
                 goto invalid_value;
         } else if (strcmp(key, "suppress_middle_click") == 0) {
             if (parse_bool(value, &cfg->suppress_middle_click) != 0)
