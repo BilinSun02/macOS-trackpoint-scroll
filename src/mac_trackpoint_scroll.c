@@ -53,18 +53,6 @@ struct app {
     bool target_present;
     bool have_scroll_anchor;
 
-    /*
-     * This adapter reports relative X and Y as separate IOHID value callbacks
-     * with the same hardware timestamp. Coalesce them back into one pointer
-     * report before synthesizing Quartz motion.
-     */
-    bool have_pointer_report;
-    bool pointer_seen_x;
-    bool pointer_seen_y;
-    uint64_t pointer_report_time_us;
-    int64_t pointer_report_dx;
-    int64_t pointer_report_dy;
-
     uint64_t pointer_diag_window_start_us;
     uint64_t pointer_diag_raw_x_events;
     uint64_t pointer_diag_raw_y_events;
@@ -345,12 +333,6 @@ device_removed(void *context, IOReturn result, void *sender,
     app->left_down = false;
     app->right_down = false;
     app->have_scroll_anchor = false;
-    app->have_pointer_report = false;
-    app->pointer_seen_x = false;
-    app->pointer_seen_y = false;
-    app->pointer_report_time_us = 0;
-    app->pointer_report_dx = 0;
-    app->pointer_report_dy = 0;
     app->point_remainder_x = 0.0;
     app->point_remainder_y = 0.0;
     (void)tpsc_engine_end(app->engine, now_us());
@@ -465,29 +447,6 @@ post_relative_motion(int64_t dx, int64_t dy, struct app *app)
 }
 
 static void
-flush_pointer_report(struct app *app)
-{
-    int64_t dx;
-    int64_t dy;
-
-    if (!app->have_pointer_report)
-        return;
-
-    dx = app->pointer_report_dx;
-    dy = app->pointer_report_dy;
-
-    app->have_pointer_report = false;
-    app->pointer_seen_x = false;
-    app->pointer_seen_y = false;
-    app->pointer_report_time_us = 0;
-    app->pointer_report_dx = 0;
-    app->pointer_report_dy = 0;
-
-    if ((dx != 0 || dy != 0) && app->seize && !app->middle_down)
-        post_relative_motion(dx, dy, app);
-}
-
-static void
 pointer_diag_observe_raw(struct app *app, uint32_t usage, int64_t value,
                          uint64_t time_us)
 {
@@ -531,38 +490,6 @@ pointer_diag_maybe_report(struct app *app, uint64_t time_us)
     app->pointer_diag_post_events = 0;
     app->pointer_diag_post_x_sum = 0;
     app->pointer_diag_post_y_sum = 0;
-}
-
-static void
-queue_pointer_motion(struct app *app, uint32_t usage, int64_t value,
-                     uint64_t time_us)
-{
-    pointer_diag_observe_raw(app, usage, value, time_us);
-    if (app->have_pointer_report &&
-        time_us != app->pointer_report_time_us)
-        flush_pointer_report(app);
-
-    if (!app->have_pointer_report) {
-        app->have_pointer_report = true;
-        app->pointer_report_time_us = time_us;
-    }
-
-    if (usage == kHIDUsage_GD_X) {
-        app->pointer_report_dx += value;
-        app->pointer_seen_x = true;
-    } else if (usage == kHIDUsage_GD_Y) {
-        app->pointer_report_dy += value;
-        app->pointer_seen_y = true;
-    }
-
-    /*
-     * Normal reports contain both axis elements (one may be zero), so the
-     * common path posts immediately after the second callback. If a report
-     * contains only one axis element, the next report or periodic tick flushes
-     * it rather than manufacturing a second synthetic event.
-     */
-    if (app->pointer_seen_x && app->pointer_seen_y)
-        flush_pointer_report(app);
 }
 
 static void
@@ -675,15 +602,9 @@ input_value(void *context, IOReturn result, void *sender, IOHIDValueRef value)
     if (page == kHIDPage_GenericDesktop &&
         (usage == kHIDUsage_GD_X || usage == kHIDUsage_GD_Y)) {
         if (app->seize && !app->middle_down)
-            queue_pointer_motion(app, usage, integer_value, time_us);
-        else
-            handle_motion(app, usage, integer_value, time_us);
+            pointer_diag_observe_raw(app, usage, integer_value, time_us);
+        handle_motion(app, usage, integer_value, time_us);
     } else if (page == kHIDPage_Button) {
-        /*
-         * Preserve HID report ordering across mode/button transitions. A
-         * partially observed pointer report belongs before this button event.
-         */
-        flush_pointer_report(app);
         handle_button(app, usage, integer_value != 0, time_us);
     }
 }
@@ -698,11 +619,6 @@ tick_callback(CFRunLoopTimerRef timer, void *context)
 
     (void)timer;
 
-    /*
-     * Flush the rare report that exposed only one axis element and was not
-     * followed by another HID report.
-     */
-    flush_pointer_report(app);
     pointer_diag_maybe_report(app, now_us());
 
     if (!app->middle_down || !tpsc_engine_needs_ticks(app->engine))
