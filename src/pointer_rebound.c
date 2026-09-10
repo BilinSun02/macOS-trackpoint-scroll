@@ -115,11 +115,6 @@ post_correction(struct tpsc_vec correction)
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaX, dx);
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaY, dy);
 
-    fprintf(stderr,
-            "trackpoint: rebound correction dx=%" PRId64
-            " dy=%" PRId64 "\n",
-            dx, dy);
-
     g_posting_correction = true;
     tpsc_event_post(kCGHIDEventTap, event);
     g_posting_correction = false;
