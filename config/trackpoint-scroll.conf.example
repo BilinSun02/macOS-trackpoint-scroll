@@ -45,6 +45,7 @@ pointer_acceleration=0.0
 # is active. This setting is ignored when pointer_acceleration=0.0.
 pointer_acceleration_velocity=0.10
 
-# Retrospectively undo a short, small terminal TrackPoint reversal.
-# Disabled by default; live reversal is never delayed or suppressed.
+# Quartz compatibility path only: retrospectively undo a short, small
+# terminal TrackPoint reversal. The installed full virtual-HID path does not
+# currently feed this correction layer.
 rebound_filter=false
