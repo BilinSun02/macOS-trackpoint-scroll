@@ -37,9 +37,9 @@ echo "=== core / posting errors ==="
 grep -E "core (gesture transition|feed|tick) failed|virtual-HID .* failed|IOHIDManagerOpen failed" "$LOG" || echo "(none)"
 echo
 echo "=== daemon startup identity ==="
-grep -E "privacy |matched HID|running for|raw HID pointer curve" "$LOG" || true
+grep -E "privacy |matched HID|running for|raw HID pointer curve|system natural-scroll|scroll profile=" "$LOG" || true
 echo
-echo "=== direct HID helper scroll path ==="
-sudo grep -E "direct floating-point HID scroll ready|direct HID scroll SPI unavailable|cannot create HID event-system client|direct HID scroll forwarding failed" \
+echo "=== virtual-HID scroll configuration ==="
+sudo grep -E "effective scroll acceleration key|effective-scroll-acceleration|mouse-scroll-acceleration|legacy-scroll-acceleration|requested linear scroll|could not disable scroll acceleration" \
   "/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log" | tail -20 || true
 '
