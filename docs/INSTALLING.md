@@ -72,9 +72,9 @@ Add or enable:
 ~/Applications/macOS-trackpoint-scroll.app
 ```
 
-Input Monitoring is needed for exclusive TrackPoint HID access. Accessibility is needed for the replacement Quartz pointer and scroll events.
+Input Monitoring is needed for exclusive TrackPoint HID access. Accessibility/CoreGraphics PostEvent access is needed for active event taps and replacement Quartz events. The daemon requests these permissions explicitly when it starts. On current macOS, the Accessibility list can appear enabled before the running process is actually trusted, so use the daemon log rather than the checkbox alone: a healthy grant reports `cg-post-event=granted` and `ax-trusted=yes`.
 
-After changing either permission, restart the agent:
+After changing either permission or accepting a newly presented prompt, restart the agent:
 
 ```sh
 launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
