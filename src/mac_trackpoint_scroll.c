@@ -933,7 +933,13 @@ setup_core(struct app *app)
     struct tpsc_engine_config cfg;
     int status;
 
-    tpsc_profile_defaults_hyperbolic(&app->profile);
+    /*
+     * TrackPoint scrolling is intended to be linear in stick deflection.
+     * The previous hyperbolic profile deliberately compressed low/mid speeds,
+     * which made the resulting scroll response nonlinear before it ever
+     * reached macOS.
+     */
+    tpsc_profile_defaults_affine(&app->profile);
     app->profile.clamp_negative_output = false;
 
     tpsc_engine_config_defaults(&cfg);
@@ -1043,6 +1049,10 @@ main(int argc, char **argv)
     fprintf(stderr,
             "trackpoint: system natural-scroll=%s\n",
             app.system_natural_scroll ? "enabled" : "disabled");
+    fprintf(stderr,
+            "trackpoint: scroll profile=affine k=%g b=%g\n",
+            app.profile.params.affine.k,
+            app.profile.params.affine.b);
     fprintf(stderr,
             "trackpoint: running for vid=%04x pid=%04x, scale=%g, direction=%s%s\n",
             app.vendor_id, app.product_id, app.scroll_scale,
