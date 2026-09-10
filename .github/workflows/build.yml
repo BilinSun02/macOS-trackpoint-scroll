@@ -15,3 +15,26 @@ jobs:
         run: make
       - name: CLI smoke test
         run: ./build/macOS-trackpoint-scroll --help
+      - name: Config profile smoke tests
+        shell: bash
+        run: |
+          for profile in affine quadratic hyperbolic; do
+            cat > /tmp/trackpoint-scroll.conf <<EOF
+          profile=$profile
+          clamp_negative_output=false
+          first_step_distance=0.4
+          first_step_axis_merge_ms=70.0
+          first_step_max_reports=-1
+          idle_reset_ms=333.3
+          affine_k=0.4
+          affine_b=-0.1
+          quadratic_a=0.16
+          quadratic_h=-0.25
+          quadratic_k=0.025
+          hyperbolic_a=0.75
+          hyperbolic_u=1.6
+          hyperbolic_k=-1.175
+          EOF
+            ./build/macOS-trackpoint-scroll \
+              --config /tmp/trackpoint-scroll.conf --help >/dev/null
+          done
