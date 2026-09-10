@@ -25,6 +25,12 @@
 #define DEFAULT_PRODUCT_ID 0x0001
 #define MIDDLE_BUTTON_USAGE 3
 #define TPSC_VHID_SCROLL_PIXELS_PER_STEP 8.0
+#define TPSC_SCROLL_REWRITE_QUEUE_CAPACITY 2048
+
+struct tpsc_scroll_rewrite {
+    double horizontal;
+    double vertical;
+};
 
 struct app {
     IOHIDManagerRef hid_manager;
@@ -44,12 +50,18 @@ struct app {
     double point_remainder_y;
     CGPoint scroll_anchor;
 
+    struct tpsc_scroll_rewrite
+        scroll_rewrite_queue[TPSC_SCROLL_REWRITE_QUEUE_CAPACITY];
+    size_t scroll_rewrite_head;
+    size_t scroll_rewrite_count;
+
     bool seize;
     bool edge_pressure_helper;
     bool vhid_pointer;
     bool verbose;
     bool suppress_middle_click;
     bool system_natural_scroll;
+    bool scroll_rewrite_enabled;
     bool middle_down;
     bool left_down;
     bool right_down;
@@ -387,6 +399,55 @@ take_point_delta(double value, double *remainder)
 static uint32_t vhid_button_mask(const struct app *app);
 
 static void
+scroll_rewrite_clear(struct app *app)
+{
+    app->scroll_rewrite_head = 0;
+    app->scroll_rewrite_count = 0;
+}
+
+static bool
+scroll_rewrite_push(struct app *app, double horizontal, double vertical)
+{
+    size_t index;
+
+    if (app->scroll_rewrite_count >= TPSC_SCROLL_REWRITE_QUEUE_CAPACITY)
+        return false;
+
+    index = (app->scroll_rewrite_head + app->scroll_rewrite_count) %
+            TPSC_SCROLL_REWRITE_QUEUE_CAPACITY;
+    app->scroll_rewrite_queue[index].horizontal = horizontal;
+    app->scroll_rewrite_queue[index].vertical = vertical;
+    app->scroll_rewrite_count++;
+    return true;
+}
+
+static bool
+scroll_rewrite_pop(struct app *app, struct tpsc_scroll_rewrite *out)
+{
+    if (app->scroll_rewrite_count == 0)
+        return false;
+
+    *out = app->scroll_rewrite_queue[app->scroll_rewrite_head];
+    app->scroll_rewrite_head =
+        (app->scroll_rewrite_head + 1) % TPSC_SCROLL_REWRITE_QUEUE_CAPACITY;
+    app->scroll_rewrite_count--;
+    return true;
+}
+
+static void
+scroll_rewrite_undo_last_push(struct app *app)
+{
+    if (app->scroll_rewrite_count > 0)
+        app->scroll_rewrite_count--;
+}
+
+static int32_t
+scroll_carrier_sign(double value)
+{
+    return value > 0.0 ? 1 : (value < 0.0 ? -1 : 0);
+}
+
+static void
 post_scroll(struct app *app, double vertical, double horizontal)
 {
     CGEventRef event;
@@ -397,43 +458,60 @@ post_scroll(struct app *app, double vertical, double horizontal)
         return;
 
     if (app->vhid_pointer) {
-        /*
-         * The scroll engine emits smooth pixel-like output. Karabiner's virtual
-         * pointing device exposes signed 8-bit wheel steps instead. Preserve
-         * low-speed motion by accumulating fractional wheel units across ticks
-         * rather than rounding each small output independently.
-         */
-        /*
-         * Hardware-class wheel reports are inverted again by macOS when the
-         * system "Natural scrolling" preference is enabled. Compensate for
-         * that here so this application's natural_scroll setting remains the
-         * sole authority for the resulting direction.
-         */
-        {
-            /*
-             * HID wheel sign is opposite Quartz scroll-delta sign. If the
-             * system natural-scroll setting matches this application's
-             * natural_scroll setting, emit raw HID wheel direction; if the
-             * settings differ, invert it. Since vertical/horizontal already
-             * include the application's direction sign, this requires the
-             * opposite compensation from the Quartz convention.
-             */
-            double system_sign = app->system_natural_scroll ? 1.0 : -1.0;
+        double system_sign = app->system_natural_scroll ? 1.0 : -1.0;
 
-            point_vertical = take_point_delta(
-                system_sign * vertical / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
-                &app->point_remainder_y);
-            point_horizontal = take_point_delta(
-                system_sign * horizontal / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
-                &app->point_remainder_x);
+        if (app->scroll_rewrite_enabled) {
+            /*
+             * Use a unit VHID wheel report only as a hardware-class carrier.
+             * The corresponding Quartz event is rewritten in the event tap
+             * with the exact floating-point core output, after macOS has
+             * applied its conventional wheel acceleration.
+             */
+            point_vertical = scroll_carrier_sign(system_sign * vertical);
+            point_horizontal = scroll_carrier_sign(system_sign * horizontal);
+
+            if (!scroll_rewrite_push(app, horizontal, vertical)) {
+                fprintf(stderr,
+                        "trackpoint: scroll rewrite queue overflow; "
+                        "dropping scroll tick\n");
+                return;
+            }
+
+            if (app->verbose)
+                fprintf(stderr,
+                        "trackpoint: vhid-wheel carrier h=%" PRId32
+                        " v=%" PRId32 " target h=%g v=%g queue=%zu\n",
+                        point_horizontal, point_vertical,
+                        horizontal, vertical,
+                        app->scroll_rewrite_count);
+
+            if (!tpsc_edge_pressure_post_report(
+                    0, 0, point_vertical, point_horizontal,
+                    vhid_button_mask(app))) {
+                scroll_rewrite_undo_last_push(app);
+                fprintf(stderr,
+                        "trackpoint: virtual-HID scroll forwarding failed\n");
+            }
+            return;
         }
+
+        /*
+         * Fallback when the rewrite tap cannot be created: preserve the
+         * previous quantized VHID-wheel behavior.
+         */
+        point_vertical = take_point_delta(
+            system_sign * vertical / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
+            &app->point_remainder_y);
+        point_horizontal = take_point_delta(
+            system_sign * horizontal / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
+            &app->point_remainder_x);
 
         if (point_vertical == 0 && point_horizontal == 0)
             return;
 
         if (app->verbose)
             fprintf(stderr,
-                    "trackpoint: vhid-wheel send h=%" PRId32
+                    "trackpoint: vhid-wheel fallback h=%" PRId32
                     " v=%" PRId32 " from h=%g v=%g\n",
                     point_horizontal, point_vertical,
                     horizontal, vertical);
