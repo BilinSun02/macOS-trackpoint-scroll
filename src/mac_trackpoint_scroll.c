@@ -977,20 +977,55 @@ setup_hid(struct app *app)
     return 0;
 }
 
+static const char *
+profile_name(enum tpsc_profile_kind kind)
+{
+    switch (kind) {
+    case TPSC_PROFILE_AFFINE:
+        return "affine";
+    case TPSC_PROFILE_QUADRATIC:
+        return "quadratic";
+    case TPSC_PROFILE_HYPERBOLIC:
+        return "hyperbolic";
+    }
+    return "unknown";
+}
+
 static int
-setup_core(struct app *app)
+setup_core(struct app *app, const struct macos_trackpoint_config *config)
 {
     struct tpsc_engine_config cfg;
     int status;
 
-    tpsc_profile_defaults_hyperbolic(&app->profile);
-    app->profile.clamp_negative_output = false;
+    switch (config->profile) {
+    case TPSC_PROFILE_AFFINE:
+        tpsc_profile_defaults_affine(&app->profile);
+        app->profile.params.affine.k = config->affine_k;
+        app->profile.params.affine.b = config->affine_b;
+        break;
+    case TPSC_PROFILE_QUADRATIC:
+        tpsc_profile_defaults_quadratic(&app->profile);
+        app->profile.params.quadratic.a = config->quadratic_a;
+        app->profile.params.quadratic.h = config->quadratic_h;
+        app->profile.params.quadratic.k = config->quadratic_k;
+        break;
+    case TPSC_PROFILE_HYPERBOLIC:
+        tpsc_profile_defaults_hyperbolic(&app->profile);
+        app->profile.params.hyperbolic.a = config->hyperbolic_a;
+        app->profile.params.hyperbolic.u = config->hyperbolic_u;
+        app->profile.params.hyperbolic.k = config->hyperbolic_k;
+        break;
+    default:
+        fprintf(stderr, "trackpoint: unsupported scroll profile\n");
+        return -1;
+    }
+    app->profile.clamp_negative_output = config->clamp_negative_output;
 
     tpsc_engine_config_defaults(&cfg);
-    cfg.first_step_distance = 0.4;
-    cfg.first_step_axis_merge_ms = 70.0;
-    cfg.first_step_max_reports = -1;
-    cfg.idle_reset_ms = 333.3;
+    cfg.first_step_distance = config->first_step_distance;
+    cfg.first_step_axis_merge_ms = config->first_step_axis_merge_ms;
+    cfg.first_step_max_reports = config->first_step_max_reports;
+    cfg.idle_reset_ms = config->idle_reset_ms;
     cfg.transform.apply = tpsc_profile_transform;
     cfg.transform.userdata = &app->profile;
 
@@ -1082,7 +1117,7 @@ main(int argc, char **argv)
     if (tpsc_pointer_rebound_set_enabled(config.rebound_filter) != 0)
         return 1;
 
-    if (setup_core(&app) != 0 ||
+    if (setup_core(&app, &config) != 0 ||
         setup_event_tap(&app) != 0 ||
         setup_tick_timer(&app) != 0 ||
         setup_hid(&app) != 0) {
@@ -1094,10 +1129,34 @@ main(int argc, char **argv)
             "trackpoint: system natural-scroll=%s\n",
             app.system_natural_scroll ? "enabled" : "disabled");
     fprintf(stderr,
-            "trackpoint: scroll profile=hyperbolic a=%g u=%g k=%g\n",
-            app.profile.params.hyperbolic.a,
-            app.profile.params.hyperbolic.u,
-            app.profile.params.hyperbolic.k);
+            "trackpoint: scroll profile=%s clamp_negative_output=%s "
+            "first_step_distance=%g first_step_axis_merge_ms=%g "
+            "first_step_max_reports=%d idle_reset_ms=%g\n",
+            profile_name(app.profile.kind),
+            app.profile.clamp_negative_output ? "true" : "false",
+            config.first_step_distance,
+            config.first_step_axis_merge_ms,
+            config.first_step_max_reports,
+            config.idle_reset_ms);
+    switch (app.profile.kind) {
+    case TPSC_PROFILE_AFFINE:
+        fprintf(stderr, "trackpoint: affine k=%g b=%g\n",
+                app.profile.params.affine.k,
+                app.profile.params.affine.b);
+        break;
+    case TPSC_PROFILE_QUADRATIC:
+        fprintf(stderr, "trackpoint: quadratic a=%g h=%g k=%g\n",
+                app.profile.params.quadratic.a,
+                app.profile.params.quadratic.h,
+                app.profile.params.quadratic.k);
+        break;
+    case TPSC_PROFILE_HYPERBOLIC:
+        fprintf(stderr, "trackpoint: hyperbolic a=%g u=%g k=%g\n",
+                app.profile.params.hyperbolic.a,
+                app.profile.params.hyperbolic.u,
+                app.profile.params.hyperbolic.k);
+        break;
+    }
     fprintf(stderr,
             "trackpoint: running for vid=%04x pid=%04x, scale=%g, direction=%s%s\n",
             app.vendor_id, app.product_id, app.scroll_scale,
