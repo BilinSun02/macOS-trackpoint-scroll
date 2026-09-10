@@ -1,15 +1,38 @@
 # macOS TrackPoint Scroll configuration
 # Default location: ~/.config/macOS-trackpoint-scroll.conf
+# Read once when the daemon starts; restart the LaunchAgent after edits.
 
 # false preserves the current/traditional wheel direction.
 # true reverses both axes for natural/content-following scrolling.
 natural_scroll=false
 
-# Multiplier applied to reconstructed TrackPoint scroll output.
+# Multiplier applied after trackpoint-scroll-core reconstructs/transforms motion.
 scroll_scale=8.0
 
-# Suppress the adapter's ordinary middle-click while it is used for scrolling.
+# Scroll profile and core parameters. These names/defaults intentionally mirror
+# BilinSun02/libinput-trackpoint-scroll where the same core supports them.
+profile=hyperbolic
+clamp_negative_output=false
 suppress_middle_click=true
+
+first_step_distance=0.4
+first_step_axis_merge_ms=70.0
+first_step_max_reports=-1
+idle_reset_ms=333.3
+
+# Affine: y = k*x + b
+affine_k=0.4
+affine_b=0.0
+
+# Quadratic: y = a*(x-h)^2 + k
+quadratic_a=0.16
+quadratic_h=0.0
+quadratic_k=0.025
+
+# Hyperbolic: y = a*sqrt(u^2 + x^2) + k
+hyperbolic_a=0.75
+hyperbolic_u=1.6
+hyperbolic_k=-1.175
 
 # Base TrackPoint pointer sensitivity in seized mode.
 pointer_speed=1.0
