@@ -431,6 +431,13 @@ post_scroll(struct app *app, double vertical, double horizontal)
         if (point_vertical == 0 && point_horizontal == 0)
             return;
 
+        if (app->verbose)
+            fprintf(stderr,
+                    "trackpoint: vhid-wheel send h=%" PRId32
+                    " v=%" PRId32 " from h=%g v=%g\n",
+                    point_horizontal, point_vertical,
+                    horizontal, vertical);
+
         if (!tpsc_edge_pressure_post_report(
                 0, 0, point_vertical, point_horizontal,
                 vhid_button_mask(app)))
@@ -790,6 +797,29 @@ event_tap_callback(CGEventTapProxy proxy, CGEventType type,
         return event;
     }
 
+    if (type == kCGEventScrollWheel && app->verbose) {
+        fprintf(stderr,
+                "trackpoint: observed-wheel "
+                "delta[h=%" PRId64 " v=%" PRId64 "] "
+                "point[h=%" PRId64 " v=%" PRId64 "] "
+                "fixed[h=%g v=%g] continuous=%" PRId64 "\n",
+                CGEventGetIntegerValueField(
+                    event, kCGScrollWheelEventDeltaAxis2),
+                CGEventGetIntegerValueField(
+                    event, kCGScrollWheelEventDeltaAxis1),
+                CGEventGetIntegerValueField(
+                    event, kCGScrollWheelEventPointDeltaAxis2),
+                CGEventGetIntegerValueField(
+                    event, kCGScrollWheelEventPointDeltaAxis1),
+                CGEventGetDoubleValueField(
+                    event, kCGScrollWheelEventFixedPtDeltaAxis2),
+                CGEventGetDoubleValueField(
+                    event, kCGScrollWheelEventFixedPtDeltaAxis1),
+                CGEventGetIntegerValueField(
+                    event, kCGScrollWheelEventIsContinuous));
+        return event;
+    }
+
     if (!app->target_present || app->seize)
         return event;
 
@@ -822,20 +852,25 @@ static int
 setup_event_tap(struct app *app)
 {
     CGEventMask mask;
+    CGEventTapOptions options = kCGEventTapOptionDefault;
 
-    if (app->seize)
-        return 0;
-
-    mask = CGEventMaskBit(kCGEventMouseMoved) |
-           CGEventMaskBit(kCGEventLeftMouseDragged) |
-           CGEventMaskBit(kCGEventRightMouseDragged) |
-           CGEventMaskBit(kCGEventOtherMouseDragged) |
-           CGEventMaskBit(kCGEventOtherMouseDown) |
-           CGEventMaskBit(kCGEventOtherMouseUp);
+    if (app->seize) {
+        if (!app->verbose || !app->vhid_pointer)
+            return 0;
+        mask = CGEventMaskBit(kCGEventScrollWheel);
+        options = kCGEventTapOptionListenOnly;
+    } else {
+        mask = CGEventMaskBit(kCGEventMouseMoved) |
+               CGEventMaskBit(kCGEventLeftMouseDragged) |
+               CGEventMaskBit(kCGEventRightMouseDragged) |
+               CGEventMaskBit(kCGEventOtherMouseDragged) |
+               CGEventMaskBit(kCGEventOtherMouseDown) |
+               CGEventMaskBit(kCGEventOtherMouseUp);
+    }
 
     app->event_tap = CGEventTapCreate(kCGHIDEventTap,
                                       kCGHeadInsertEventTap,
-                                      kCGEventTapOptionDefault,
+                                      options,
                                       mask,
                                       event_tap_callback,
                                       app);
@@ -933,13 +968,7 @@ setup_core(struct app *app)
     struct tpsc_engine_config cfg;
     int status;
 
-    /*
-     * TrackPoint scrolling is intended to be linear in stick deflection.
-     * The previous hyperbolic profile deliberately compressed low/mid speeds,
-     * which made the resulting scroll response nonlinear before it ever
-     * reached macOS.
-     */
-    tpsc_profile_defaults_affine(&app->profile);
+    tpsc_profile_defaults_hyperbolic(&app->profile);
     app->profile.clamp_negative_output = false;
 
     tpsc_engine_config_defaults(&cfg);
@@ -1050,9 +1079,10 @@ main(int argc, char **argv)
             "trackpoint: system natural-scroll=%s\n",
             app.system_natural_scroll ? "enabled" : "disabled");
     fprintf(stderr,
-            "trackpoint: scroll profile=affine k=%g b=%g\n",
-            app.profile.params.affine.k,
-            app.profile.params.affine.b);
+            "trackpoint: scroll profile=hyperbolic a=%g u=%g k=%g\n",
+            app.profile.params.hyperbolic.a,
+            app.profile.params.hyperbolic.u,
+            app.profile.params.hyperbolic.k);
     fprintf(stderr,
             "trackpoint: running for vid=%04x pid=%04x, scale=%g, direction=%s%s\n",
             app.vendor_id, app.product_id, app.scroll_scale,
