@@ -200,27 +200,37 @@ static int8_t take_chunk(int64_t *v) {
     *v-=c;
     return (int8_t)c;
 }
-static bool post_pointing_once(uint32_t buttons, int64_t dx, int64_t dy) {
+static bool post_report_once(uint32_t buttons,
+                             int64_t dx, int64_t dy,
+                             int64_t vertical_wheel,
+                             int64_t horizontal_wheel) {
     do {
         struct pointing_report report={0};
         report.buttons=buttons;
         report.x=(uint8_t)take_chunk(&dx);
         report.y=(uint8_t)take_chunk(&dy);
+        report.vertical_wheel=(uint8_t)take_chunk(&vertical_wheel);
+        report.horizontal_wheel=(uint8_t)take_chunk(&horizontal_wheel);
         if (!send_request(REQ_POINTING_REPORT,&report,sizeof(report),false))
             return false;
-    } while (dx || dy);
+    } while (dx || dy || vertical_wheel || horizontal_wheel);
 
     return true;
 }
 
-bool tpsc_vhid_post_pointing(uint32_t buttons, int64_t dx, int64_t dy) {
+bool tpsc_vhid_post_report(uint32_t buttons,
+                           int64_t dx, int64_t dy,
+                           int64_t vertical_wheel,
+                           int64_t horizontal_wheel) {
     int64_t original_dx=dx;
     int64_t original_dy=dy;
+    int64_t original_vertical_wheel=vertical_wheel;
+    int64_t original_horizontal_wheel=horizontal_wheel;
 
     if (!tpsc_vhid_is_enabled() && tpsc_vhid_initialize()!=0)
         return false;
 
-    if (post_pointing_once(buttons,dx,dy))
+    if (post_report_once(buttons,dx,dy,vertical_wheel,horizontal_wheel))
         return true;
 
     fprintf(stderr,
@@ -231,11 +241,18 @@ bool tpsc_vhid_post_pointing(uint32_t buttons, int64_t dx, int64_t dy) {
     if (tpsc_vhid_initialize()!=0)
         return false;
 
-    return post_pointing_once(buttons,original_dx,original_dy);
+    return post_report_once(buttons,
+                            original_dx,original_dy,
+                            original_vertical_wheel,
+                            original_horizontal_wheel);
+}
+
+bool tpsc_vhid_post_pointing(uint32_t buttons, int64_t dx, int64_t dy) {
+    return tpsc_vhid_post_report(buttons,dx,dy,0,0);
 }
 
 bool tpsc_vhid_post_relative(int64_t dx, int64_t dy) {
     if (dx == 0 && dy == 0)
         return true;
-    return tpsc_vhid_post_pointing(0,dx,dy);
+    return tpsc_vhid_post_report(0,dx,dy,0,0);
 }
