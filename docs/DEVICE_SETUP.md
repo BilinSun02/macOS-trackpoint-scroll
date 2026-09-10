@@ -81,7 +81,7 @@ If the HID open fails with `0xe00002e2`, check Input Monitoring. If the active s
 
 Optional pointer speed/acceleration is applied to the raw HID values before relative virtual-HID reports are sent. It uses the HID timestamps, not synthetic CoreGraphics timestamps. Middle-button scrolling bypasses this pointer curve and feeds raw deltas to the shared scroll core.
 
-The earlier absolute-Quartz split-axis cache and display-edge latch remain only in the non-VHID compatibility path; the installed configuration does not use them.
+The absolute-Quartz split-axis cache and display projection remain only in the non-VHID compatibility path; the installed configuration does not use them.
 
 ## Sparse-report behavior
 
