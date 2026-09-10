@@ -62,6 +62,7 @@ struct app {
     bool suppress_middle_click;
     bool system_natural_scroll;
     bool scroll_rewrite_enabled;
+    CGEventTapLocation scroll_rewrite_tap_location;
     bool middle_down;
     bool left_down;
     bool right_down;
@@ -984,6 +985,17 @@ event_tap_callback(CGEventTapProxy proxy, CGEventType type,
     return event;
 }
 
+static CFMachPortRef
+create_active_scroll_tap(struct app *app, CGEventTapLocation location)
+{
+    return CGEventTapCreate(location,
+                            kCGHeadInsertEventTap,
+                            kCGEventTapOptionDefault,
+                            CGEventMaskBit(kCGEventScrollWheel),
+                            event_tap_callback,
+                            app);
+}
+
 static int
 setup_event_tap(struct app *app)
 {
@@ -993,8 +1005,32 @@ setup_event_tap(struct app *app)
     if (app->seize) {
         if (!app->vhid_pointer)
             return 0;
-        mask = CGEventMaskBit(kCGEventScrollWheel);
-        options = kCGEventTapOptionDefault;
+
+        app->event_tap = create_active_scroll_tap(app, kCGHIDEventTap);
+        if (app->event_tap) {
+            app->scroll_rewrite_tap_location = kCGHIDEventTap;
+            fprintf(stderr,
+                    "trackpoint: active scroll rewrite tap created at HID tap\n");
+        } else {
+            fprintf(stderr,
+                    "trackpoint: active HID scroll tap unavailable; "
+                    "trying session tap\n");
+            app->event_tap =
+                create_active_scroll_tap(app, kCGSessionEventTap);
+            if (app->event_tap) {
+                app->scroll_rewrite_tap_location = kCGSessionEventTap;
+                fprintf(stderr,
+                        "trackpoint: active scroll rewrite tap created at "
+                        "session tap\n");
+            }
+        }
+
+        if (!app->event_tap) {
+            fprintf(stderr,
+                    "trackpoint: warning: no active scroll rewrite tap "
+                    "available; falling back to accelerated VHID wheel path\n");
+            return 0;
+        }
     } else {
         mask = CGEventMaskBit(kCGEventMouseMoved) |
                CGEventMaskBit(kCGEventLeftMouseDragged) |
@@ -1002,25 +1038,19 @@ setup_event_tap(struct app *app)
                CGEventMaskBit(kCGEventOtherMouseDragged) |
                CGEventMaskBit(kCGEventOtherMouseDown) |
                CGEventMaskBit(kCGEventOtherMouseUp);
-    }
 
-    app->event_tap = CGEventTapCreate(kCGHIDEventTap,
-                                      kCGHeadInsertEventTap,
-                                      options,
-                                      mask,
-                                      event_tap_callback,
-                                      app);
-    if (!app->event_tap) {
-        if (app->seize) {
+        app->event_tap = CGEventTapCreate(kCGHIDEventTap,
+                                          kCGHeadInsertEventTap,
+                                          options,
+                                          mask,
+                                          event_tap_callback,
+                                          app);
+        if (!app->event_tap) {
             fprintf(stderr,
-                    "trackpoint: warning: scroll-observation event tap "
-                    "unavailable; continuing without wheel telemetry\n");
-            return 0;
+                    "trackpoint: cannot create Quartz event tap. Grant Input "
+                    "Monitoring/Accessibility permission and relaunch.\n");
+            return -1;
         }
-        fprintf(stderr,
-                "trackpoint: cannot create Quartz event tap. Grant Input "
-                "Monitoring/Accessibility permission and relaunch.\n");
-        return -1;
     }
 
     app->event_tap_source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault,
@@ -1028,8 +1058,9 @@ setup_event_tap(struct app *app)
     if (!app->event_tap_source) {
         if (app->seize) {
             fprintf(stderr,
-                    "trackpoint: warning: cannot create scroll-observation "
-                    "run-loop source; continuing without wheel telemetry\n");
+                    "trackpoint: warning: cannot create active scroll rewrite "
+                    "run-loop source; falling back to accelerated VHID wheel "
+                    "path\n");
             CFRelease(app->event_tap);
             app->event_tap = NULL;
             return 0;
@@ -1043,7 +1074,10 @@ setup_event_tap(struct app *app)
     if (app->seize && app->vhid_pointer) {
         app->scroll_rewrite_enabled = true;
         fprintf(stderr,
-                "trackpoint: VHID scroll carrier rewrite enabled\n");
+                "trackpoint: VHID scroll carrier rewrite enabled (%s tap)\n",
+                app->scroll_rewrite_tap_location == kCGHIDEventTap
+                    ? "HID"
+                    : "session");
     }
     return 0;
 }
