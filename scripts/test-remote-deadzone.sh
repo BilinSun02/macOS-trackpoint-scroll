@@ -22,25 +22,32 @@ sleep 8
 cp "$LOG" /tmp/macos-trackpoint-deadzone-phase1.log
 
 echo
-echo "=== phase 2: normal pressure ==="
-echo "For the next 8 seconds, move the TrackPoint normally in the same area."
+echo "=== phase 2: your typical pressure ==="
+echo "For the next 8 seconds, use the TrackPoint exactly as you normally would."
+echo "Do not intentionally press harder just to make the cursor move."
 : > "$LOG"
 sleep 8
 cp "$LOG" /tmp/macos-trackpoint-deadzone-phase2.log
 
 echo
+echo "=== phase 3: strong/overshoot pressure ==="
+echo "For the next 8 seconds, press hard enough that movement is definitely produced."
+echo "This is intentionally stronger than your usual TrackPoint use."
+: > "$LOG"
+sleep 8
+cp "$LOG" /tmp/macos-trackpoint-deadzone-phase3.log
+
+echo
 echo "=== environment ==="
 sw_vers
-echo
-echo "=== phase 1 pointer telemetry ==="
-grep "pointer-diag" /tmp/macos-trackpoint-deadzone-phase1.log ||     echo "(no nonzero raw pointer samples were observed)"
-echo
-echo "=== phase 1 edge-pressure events ==="
-grep "edge pressure" /tmp/macos-trackpoint-deadzone-phase1.log || echo "(none)"
-echo
-echo "=== phase 2 pointer telemetry ==="
-grep "pointer-diag" /tmp/macos-trackpoint-deadzone-phase2.log ||     echo "(no nonzero raw pointer samples were observed)"
-echo
-echo "=== phase 2 edge-pressure events ==="
-grep "edge pressure" /tmp/macos-trackpoint-deadzone-phase2.log || echo "(none)"
+
+for phase in 1 2 3; do
+    echo
+    echo "=== phase $phase pointer telemetry ==="
+    grep "pointer-diag" "/tmp/macos-trackpoint-deadzone-phase$phase.log" || \
+        echo "(no nonzero raw pointer samples were observed)"
+    echo
+    echo "=== phase $phase edge-pressure events ==="
+    grep "edge pressure" "/tmp/macos-trackpoint-deadzone-phase$phase.log" || echo "(none)"
+done
 '
