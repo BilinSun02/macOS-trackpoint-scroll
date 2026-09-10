@@ -7,12 +7,13 @@ CGPoint tpsc_event_get_location(CGEventRef event);
 void tpsc_event_post(CGEventTapLocation tap, CGEventRef event);
 
 /*
- * The seized-device forwarding path posts absolute Quartz mouse positions.
- * The adapter reports X and Y as separate HID element callbacks, and Quartz
- * posting is asynchronous enough that immediately querying the cursor for the
- * second axis can still return the position from before the first axis post.
- * Route those two calls through a tiny cache so split-axis reports compose
- * instead of overwriting each other.
+ * Compatibility mode (seized operation without the virtual-HID helper) posts
+ * absolute Quartz mouse positions. The adapter reports X and Y as separate HID
+ * callbacks, and Quartz posting is asynchronous enough that the second axis can
+ * still query the position from before the first-axis post. Route those calls
+ * through a tiny cache so split-axis reports compose instead of overwriting one
+ * another. The normal installed helper-backed path does not use this pointer
+ * posting shim.
  */
 #define CGEventGetLocation tpsc_event_get_location
 #define CGEventPost tpsc_event_post
