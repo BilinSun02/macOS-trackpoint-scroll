@@ -55,6 +55,24 @@ cd '$STAGE_NAME'
 ./install.sh
 "
 
+echo "==> enabling full virtual-HID pointer test mode"
+ssh "$REMOTE" "
+set -eu
+LABEL='io.github.bilinsun02.macos-trackpoint-scroll'
+PLIST=\"\$HOME/Library/LaunchAgents/\$LABEL.plist\"
+DOMAIN=\"gui/\$(id -u)\"
+
+launchctl bootout \"\$DOMAIN\" \"\$PLIST\" >/dev/null 2>&1 || true
+
+if ! /usr/libexec/PlistBuddy -c 'Print :ProgramArguments' \"\$PLIST\" |
+     grep -q -- '--vhid-pointer'; then
+    /usr/libexec/PlistBuddy -c 'Add :ProgramArguments:3 string --vhid-pointer' \"\$PLIST\"
+fi
+
+plutil -lint \"\$PLIST\" >/dev/null
+launchctl bootstrap \"\$DOMAIN\" \"\$PLIST\"
+"
+
 echo "==> restarting user agent with a fresh log"
 ssh "$REMOTE" "
 set -eu
@@ -65,12 +83,13 @@ launchctl kickstart -k \"gui/\$(id -u)/\$LABEL\"
 sleep 3
 echo
 echo '=== startup diagnostics ==='
-grep -E 'privacy |IOHIDManagerOpen|diagnosis:|matched HID|running for|raw HID pointer curve' \"\$LOG\" || true
+grep -E 'privacy |IOHIDManagerOpen|diagnosis:|matched HID|running for|raw HID pointer curve|virtual-HID pointer' \"\$LOG\" || true
 "
 
 cat <<'EOF'
 
-Installed. To collect pointer telemetry after reproducing the axis-lock behavior,
+Installed in full virtual-HID pointer A/B mode.
+To collect pointer telemetry after reproducing any remaining pointer problem,
 run from the development Mac:
 
   scripts/test-remote-diagnostics.sh user@host
