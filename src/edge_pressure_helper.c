@@ -2,12 +2,12 @@
 #include "karabiner_vhid.h"
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/hid/IOHIDKeys.h>
 #include <IOKit/hidsystem/IOHIDEventSystemClient.h>
+#include <IOKit/hidsystem/IOHIDServiceClient.h>
 
-#include <dlfcn.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <mach/mach_time.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -21,102 +21,156 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-typedef struct __IOHIDEvent *tpsc_IOHIDEventRef;
-typedef double tpsc_IOHIDFloat;
-
-typedef IOHIDEventSystemClientRef (*tpsc_hid_client_create_with_type_fn)(
-    CFAllocatorRef, uint32_t, void *);
-typedef tpsc_IOHIDEventRef (*tpsc_hid_scroll_create_fn)(
-    CFAllocatorRef, uint64_t, tpsc_IOHIDFloat, tpsc_IOHIDFloat,
-    tpsc_IOHIDFloat, uint32_t);
-typedef void (*tpsc_hid_event_set_flags_fn)(tpsc_IOHIDEventRef, uint32_t);
-typedef void (*tpsc_hid_event_set_sender_id_fn)(tpsc_IOHIDEventRef, uint64_t);
-typedef void (*tpsc_hid_dispatch_fn)(IOHIDEventSystemClientRef,
-                                     tpsc_IOHIDEventRef);
-
-#define TPSC_IOHID_ACCELERATED 0x00010000u
-#define TPSC_IOHID_CLIENT_TYPE_ADMIN 0u
-#define TPSC_SCROLL_SENDER_ID UINT64_C(0xdefacedbeeffece5)
-
-static IOHIDEventSystemClientRef g_scroll_event_client;
-static tpsc_hid_scroll_create_fn g_hid_scroll_create;
-static tpsc_hid_event_set_flags_fn g_hid_event_set_flags;
-static tpsc_hid_event_set_sender_id_fn g_hid_event_set_sender_id;
-static tpsc_hid_dispatch_fn g_hid_dispatch;
-static bool g_scroll_spi_initialized;
-static bool g_scroll_spi_available;
+#define KARABINER_VHID_VENDOR_ID  0x16c0
+#define KARABINER_VHID_PRODUCT_ID 0x27da
+#define TPSC_LINEAR_SCROLL_ACCEL_FIXED (-65536)
 
 static bool
-initialize_direct_scroll_spi(void)
+cf_number_s32(CFTypeRef value, int32_t *out)
 {
-    tpsc_hid_client_create_with_type_fn create_client_with_type;
-
-    if (g_scroll_spi_initialized)
-        return g_scroll_spi_available;
-
-    g_scroll_spi_initialized = true;
-
-    create_client_with_type = (tpsc_hid_client_create_with_type_fn)
-        dlsym(RTLD_DEFAULT, "IOHIDEventSystemClientCreateWithType");
-    g_hid_scroll_create = (tpsc_hid_scroll_create_fn)
-        dlsym(RTLD_DEFAULT, "IOHIDEventCreateScrollEvent");
-    g_hid_event_set_flags = (tpsc_hid_event_set_flags_fn)
-        dlsym(RTLD_DEFAULT, "IOHIDEventSetEventFlags");
-    g_hid_event_set_sender_id = (tpsc_hid_event_set_sender_id_fn)
-        dlsym(RTLD_DEFAULT, "IOHIDEventSetSenderID");
-    g_hid_dispatch = (tpsc_hid_dispatch_fn)
-        dlsym(RTLD_DEFAULT, "IOHIDEventSystemClientDispatchEvent");
-
-    if (!create_client_with_type || !g_hid_scroll_create ||
-        !g_hid_event_set_flags || !g_hid_event_set_sender_id ||
-        !g_hid_dispatch) {
-        fprintf(stderr,
-                "edge-pressure-helper: direct HID scroll SPI unavailable\n");
-        return false;
-    }
-
-    g_scroll_event_client = create_client_with_type(
-        kCFAllocatorDefault, TPSC_IOHID_CLIENT_TYPE_ADMIN, NULL);
-    if (!g_scroll_event_client) {
-        fprintf(stderr,
-                "edge-pressure-helper: cannot create HID event-system client "
-                "for direct scrolling\n");
-        return false;
-    }
-
-    g_scroll_spi_available = true;
-    fprintf(stderr,
-            "edge-pressure-helper: direct floating-point HID scroll ready "
-            "(admin client)\n");
-    return true;
+    return value &&
+           CFGetTypeID(value) == CFNumberGetTypeID() &&
+           CFNumberGetValue((CFNumberRef)value, kCFNumberSInt32Type, out);
 }
 
 static bool
-post_direct_scroll(double scroll_x, double scroll_y)
+set_service_fixed_property(IOHIDServiceClientRef service,
+                           CFStringRef key,
+                           int32_t fixed)
 {
-    tpsc_IOHIDEventRef event;
+    CFNumberRef value;
+    bool ok;
 
-    if (scroll_x == 0.0 && scroll_y == 0.0)
-        return true;
-    if (!initialize_direct_scroll_spi())
+    value = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &fixed);
+    if (!value)
         return false;
 
-    event = g_hid_scroll_create(kCFAllocatorDefault,
-                                mach_absolute_time(),
-                                scroll_x, scroll_y, 0.0, 0);
-    if (!event)
+    ok = IOHIDServiceClientSetProperty(service, key, value);
+    CFRelease(value);
+    return ok;
+}
+
+static void
+log_service_number(IOHIDServiceClientRef service,
+                   const char *label,
+                   CFStringRef key)
+{
+    CFTypeRef value = IOHIDServiceClientCopyProperty(service, key);
+    int32_t fixed;
+
+    if (cf_number_s32(value, &fixed)) {
+        fprintf(stderr,
+                "edge-pressure-helper: %s=%" PRId32 " (%.4f)\n",
+                label, fixed, (double)fixed / 65536.0);
+    } else {
+        fprintf(stderr, "edge-pressure-helper: %s=(unset/non-number)\n",
+                label);
+    }
+
+    if (value)
+        CFRelease(value);
+}
+
+static bool
+configure_virtual_hid_linear_scroll(void)
+{
+    IOHIDEventSystemClientRef system;
+    CFArrayRef services;
+    CFIndex i;
+    bool configured = false;
+
+    system = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault);
+    if (!system)
         return false;
 
-    /*
-     * Apple's IOHIDPointerScrollFilter only applies its acceleration curve
-     * when kIOHIDAccelerated is absent. These values are already the final
-     * linear output of trackpoint-scroll-core, so mark them as processed.
-     */
-    g_hid_event_set_sender_id(event, TPSC_SCROLL_SENDER_ID);
-    g_hid_event_set_flags(event, TPSC_IOHID_ACCELERATED);
-    g_hid_dispatch(g_scroll_event_client, event);
-    CFRelease(event);
-    return true;
+    services = IOHIDEventSystemClientCopyServices(system);
+    if (!services) {
+        CFRelease(system);
+        return false;
+    }
+
+    for (i = 0; i < CFArrayGetCount(services); i++) {
+        IOHIDServiceClientRef service =
+            (IOHIDServiceClientRef)CFArrayGetValueAtIndex(services, i);
+        CFTypeRef vendor_ref;
+        CFTypeRef product_ref;
+        CFTypeRef type_ref;
+        int32_t vendor = 0;
+        int32_t product = 0;
+        int32_t fixed = TPSC_LINEAR_SCROLL_ACCEL_FIXED;
+
+        vendor_ref = IOHIDServiceClientCopyProperty(
+            service, CFSTR(kIOHIDVendorIDKey));
+        product_ref = IOHIDServiceClientCopyProperty(
+            service, CFSTR(kIOHIDProductIDKey));
+
+        (void)cf_number_s32(vendor_ref, &vendor);
+        (void)cf_number_s32(product_ref, &product);
+
+        if (vendor_ref)
+            CFRelease(vendor_ref);
+        if (product_ref)
+            CFRelease(product_ref);
+
+        if (vendor != KARABINER_VHID_VENDOR_ID ||
+            product != KARABINER_VHID_PRODUCT_ID)
+            continue;
+
+        type_ref = IOHIDServiceClientCopyProperty(
+            service, CFSTR("HIDScrollAccelerationType"));
+
+        if (type_ref && CFGetTypeID(type_ref) == CFStringGetTypeID()) {
+            configured = set_service_fixed_property(
+                service, (CFStringRef)type_ref, fixed) || configured;
+
+            {
+                char key_name[256];
+                if (CFStringGetCString((CFStringRef)type_ref,
+                                       key_name, sizeof(key_name),
+                                       kCFStringEncodingUTF8))
+                    fprintf(stderr,
+                            "edge-pressure-helper: effective scroll "
+                            "acceleration key=%s\n",
+                            key_name);
+            }
+        } else {
+            fprintf(stderr,
+                    "edge-pressure-helper: HIDScrollAccelerationType=(unset)\n");
+        }
+
+        /*
+         * Also set modern mouse-specific and legacy fallbacks. WebKit's
+         * current macOS acceleration lookup uses this same precedence chain.
+         */
+        configured = set_service_fixed_property(
+            service, CFSTR(kIOHIDMouseScrollAccelerationKey), fixed) ||
+            configured;
+        configured = set_service_fixed_property(
+            service, CFSTR(kIOHIDScrollAccelerationKey), fixed) ||
+            configured;
+
+        if (type_ref && CFGetTypeID(type_ref) == CFStringGetTypeID())
+            log_service_number(service, "effective-scroll-acceleration",
+                               (CFStringRef)type_ref);
+        log_service_number(service, "mouse-scroll-acceleration",
+                           CFSTR(kIOHIDMouseScrollAccelerationKey));
+        log_service_number(service, "legacy-scroll-acceleration",
+                           CFSTR(kIOHIDScrollAccelerationKey));
+
+        if (type_ref)
+            CFRelease(type_ref);
+
+        if (configured) {
+            fprintf(stderr,
+                    "edge-pressure-helper: requested linear scroll on "
+                    "Karabiner virtual pointing service\n");
+            break;
+        }
+    }
+
+    CFRelease(services);
+    CFRelease(system);
+    return configured;
 }
 
 static volatile sig_atomic_t g_exit_requested;
@@ -212,19 +266,12 @@ serve_client(int fd, uid_t allowed_uid)
         if (!read_all(fd, &message, sizeof(message)))
             break;
 
-        if ((message.dx != 0 || message.dy != 0 ||
-             message.buttons != 0) &&
-            !tpsc_vhid_post_pointing(message.buttons,
-                                     message.dx, message.dy)) {
+        if (!tpsc_vhid_post_report(message.buttons,
+                                   message.dx, message.dy,
+                                   message.vertical_wheel,
+                                   message.horizontal_wheel)) {
             fprintf(stderr,
                     "edge-pressure-helper: virtual HID forwarding failed\n");
-            return -1;
-        }
-
-        if ((message.scroll_x != 0.0 || message.scroll_y != 0.0) &&
-            !post_direct_scroll(message.scroll_x, message.scroll_y)) {
-            fprintf(stderr,
-                    "edge-pressure-helper: direct HID scroll forwarding failed\n");
             return -1;
         }
     }
@@ -273,6 +320,11 @@ main(int argc, char **argv)
 
     if (tpsc_vhid_initialize() != 0)
         return 1;
+
+    if (!configure_virtual_hid_linear_scroll())
+        fprintf(stderr,
+                "edge-pressure-helper: warning: could not disable scroll "
+                "acceleration on Karabiner virtual pointing service\n");
 
     n = snprintf(g_socket_path, sizeof(g_socket_path), "%s%u.sock",
                  TPSC_EDGE_PRESSURE_SOCKET_PREFIX, (unsigned)allowed_uid);
@@ -386,9 +438,5 @@ main(int argc, char **argv)
         close(g_listen_fd);
     unlink(g_socket_path);
     tpsc_vhid_shutdown();
-    if (g_scroll_event_client) {
-        CFRelease(g_scroll_event_client);
-        g_scroll_event_client = NULL;
-    }
     return 0;
 }
