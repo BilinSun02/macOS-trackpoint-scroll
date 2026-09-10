@@ -64,6 +64,25 @@ struct app {
 };
 
 static mach_timebase_info_data_t g_timebase;
+static CGEventSourceRef g_event_source;
+
+static CGEventSourceRef
+pointer_event_source(void)
+{
+    if (g_event_source)
+        return g_event_source;
+
+    /*
+     * Apple documents HIDSystemState for daemons/user-space device drivers
+     * that interpret hardware state and generate Quartz events. Keep one
+     * persistent source so WindowServer sees one coherent synthetic device
+     * rather than a stream of source-less events.
+     */
+    g_event_source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+    if (g_event_source)
+        CGEventSourceSetLocalEventsSuppressionInterval(g_event_source, 0.0);
+    return g_event_source;
+}
 
 static uint64_t
 mach_ticks_to_us(uint64_t ticks)
@@ -367,7 +386,8 @@ post_scroll(struct app *app, double vertical, double horizontal)
     point_vertical = take_point_delta(vertical, &app->point_remainder_y);
     point_horizontal = take_point_delta(horizontal, &app->point_remainder_x);
 
-    event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitPixel,
+    event = CGEventCreateScrollWheelEvent(pointer_event_source(),
+                                          kCGScrollEventUnitPixel,
                                           2, point_vertical, point_horizontal);
     if (!event)
         return;
@@ -398,7 +418,8 @@ post_button(CGEventType type, CGMouseButton button)
     position = CGEventGetLocation(current);
     CFRelease(current);
 
-    event = CGEventCreateMouseEvent(NULL, type, position, button);
+    event = CGEventCreateMouseEvent(pointer_event_source(),
+                                    type, position, button);
     if (!event)
         return;
     CGEventPost(kCGHIDEventTap, event);
@@ -430,7 +451,8 @@ post_relative_motion(int64_t dx, int64_t dy, struct app *app)
         button = kCGMouseButtonRight;
     }
 
-    event = CGEventCreateMouseEvent(NULL, type, position, button);
+    event = CGEventCreateMouseEvent(pointer_event_source(),
+                                    type, position, button);
     if (!event)
         return;
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaX, dx);
@@ -851,6 +873,10 @@ cleanup(struct app *app)
         CFRelease(app->event_tap);
     tpsc_pointer_rebound_set_enabled(false);
     tpsc_engine_destroy(app->engine);
+    if (g_event_source) {
+        CFRelease(g_event_source);
+        g_event_source = NULL;
+    }
 }
 
 int
