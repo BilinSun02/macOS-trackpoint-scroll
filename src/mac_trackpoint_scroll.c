@@ -760,7 +760,6 @@ tick_callback(CFRunLoopTimerRef timer, void *context)
 
     (void)timer;
 
-
     if (!app->middle_down || !tpsc_engine_needs_ticks(app->engine))
         return;
 
@@ -774,10 +773,68 @@ tick_callback(CFRunLoopTimerRef timer, void *context)
     if (output.x != 0.0 || output.y != 0.0) {
         double horizontal = app->x_sign * output.x * app->scroll_scale;
         double vertical = app->y_sign * output.y * app->scroll_scale;
+
         post_scroll(app, vertical, horizontal);
+        if (app->verbose)
+            fprintf(stderr, "trackpoint: scroll x=%g y=%g\n",
+                    horizontal, vertical);
+    }
+}
+
+static bool
+is_mouse_motion_event(CGEventType type)
+{
+    return type == kCGEventMouseMoved ||
+           type == kCGEventLeftMouseDragged ||
+           type == kCGEventRightMouseDragged ||
+           type == kCGEventOtherMouseDragged;
+}
+
+static CGEventRef
+event_tap_callback(CGEventTapProxy proxy, CGEventType type,
+                   CGEventRef event, void *context)
+{
+    struct app *app = context;
+    int64_t button;
+
+    (void)proxy;
+
+    if (type == kCGEventTapDisabledByTimeout ||
+        type == kCGEventTapDisabledByUserInput) {
+        if (app->event_tap)
+            CGEventTapEnable(app->event_tap, true);
         return event;
     }
 
+    if (type == kCGEventScrollWheel && app->edge_pressure_helper &&
+        app->middle_down) {
+        struct tpsc_scroll_rewrite target;
+
+        if (scroll_rewrite_pop(app, &target)) {
+            int32_t target_point_v =
+                take_point_delta(target.vertical, &app->point_remainder_y);
+            int32_t target_point_h =
+                take_point_delta(target.horizontal, &app->point_remainder_x);
+
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventDeltaAxis1, target_point_v);
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventDeltaAxis2, target_point_h);
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventPointDeltaAxis1, target_point_v);
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventPointDeltaAxis2, target_point_h);
+            CGEventSetDoubleValueField(
+                event, kCGScrollWheelEventFixedPtDeltaAxis1,
+                target.vertical);
+            CGEventSetDoubleValueField(
+                event, kCGScrollWheelEventFixedPtDeltaAxis2,
+                target.horizontal);
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventIsContinuous, 1);
+        }
+        return event;
+    }
 
     if (!app->target_present || app->seize)
         return event;
@@ -789,14 +846,6 @@ tick_callback(CFRunLoopTimerRef timer, void *context)
     }
 
     if (app->middle_down && is_mouse_motion_event(type)) {
-        /*
-         * Dropping a HID-level Quartz mouse event did not prevent WindowServer
-         * from advancing the visible cursor on this adapter. Rewriting the
-         * event in place avoids generating a second synthetic mouse event (and
-         * therefore avoids Quartz's local-event suppression delay): applications
-         * see a zero-delta event whose absolute position remains at the gesture
-         * anchor.
-         */
         CGEventSetIntegerValueField(event, kCGMouseEventDeltaX, 0);
         CGEventSetIntegerValueField(event, kCGMouseEventDeltaY, 0);
         if (app->have_scroll_anchor)
