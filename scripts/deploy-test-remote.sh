@@ -119,12 +119,6 @@ if ! grep -q "VHID scroll carrier rewrite enabled" "$LOG"; then
 fi
 '
 
-echo "==> virtual-HID scroll diagnostics"
-ssh -t "$REMOTE" "
-sudo grep -E 'scroll-acceleration-support|effective scroll acceleration key|effective-scroll-acceleration|mouse-scroll-acceleration|legacy-scroll-acceleration|requested scroll acceleration disable|disabled scroll acceleration|could not disable scroll acceleration' \
-  '/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log' | tail -20 || true
-"
-
 cat <<'EOF'
 
 Installed in full virtual-HID pointer A/B mode with scroll rewrite active.
