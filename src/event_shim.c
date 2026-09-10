@@ -13,6 +13,8 @@
 #define TPSC_MAX_ACTIVE_DISPLAYS 32u
 #define TPSC_DOUBLE_CLICK_FALLBACK_SECONDS 0.5
 #define TPSC_DOUBLE_CLICK_SLOP_POINTS 4.0
+#define TPSC_EDGE_PRESSURE_IDLE_SECONDS 0.300
+#define TPSC_EDGE_PRESSURE_POSITION_SLOP_POINTS 1.0
 
 struct click_tracker {
     bool down;
@@ -38,6 +40,57 @@ static CFAbsoluteTime g_posted_pointer_time;
 static int g_edge_pressure_x;
 static int g_edge_pressure_y;
 static CGPoint g_edge_pressure_position;
+static CFAbsoluteTime g_edge_pressure_last_outward_time;
+
+static bool
+edge_pressure_active(void)
+{
+    return g_edge_pressure_x != 0 || g_edge_pressure_y != 0;
+}
+
+static void
+clear_edge_pressure(const char *reason)
+{
+    if (!edge_pressure_active())
+        return;
+
+    g_edge_pressure_x = 0;
+    g_edge_pressure_y = 0;
+    g_edge_pressure_last_outward_time = 0.0;
+    g_have_posted_pointer_position = false;
+
+    if (reason)
+        fprintf(stderr, "trackpoint: edge pressure released (%s)\n", reason);
+}
+
+static bool
+actual_cursor_position(CGPoint *position)
+{
+    CGEventRef event = CGEventCreate(NULL);
+
+    if (!event)
+        return false;
+
+    *position = CGEventGetLocation(event);
+    CFRelease(event);
+    return true;
+}
+
+static bool
+edge_pressure_cursor_still_here(void)
+{
+    CGPoint current;
+    double dx;
+    double dy;
+    double slop = TPSC_EDGE_PRESSURE_POSITION_SLOP_POINTS;
+
+    if (!actual_cursor_position(&current))
+        return true;
+
+    dx = (double)(current.x - g_edge_pressure_position.x);
+    dy = (double)(current.y - g_edge_pressure_position.y);
+    return dx * dx + dy * dy <= slop * slop;
+}
 
 static struct click_tracker g_left_click;
 static struct click_tracker g_right_click;
@@ -301,8 +354,7 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
 
     if (is_button_down(type) || is_button_up(type)) {
         tpsc_pointer_rebound_reset();
-        g_edge_pressure_x = 0;
-        g_edge_pressure_y = 0;
+        clear_edge_pressure("button transition");
     }
 
     if (is_pointer_motion(type)) {
@@ -310,25 +362,39 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
         CGPoint position;
         int64_t dx = CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
         int64_t dy = CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
-        bool had_edge_pressure = g_edge_pressure_x != 0 ||
-                                 g_edge_pressure_y != 0;
-        bool release_x = false;
-        bool release_y = false;
+        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+        bool had_edge_pressure;
+        bool inward_reversal = false;
+
+        if (edge_pressure_active()) {
+            if (g_edge_pressure_last_outward_time > 0.0 &&
+                now - g_edge_pressure_last_outward_time >
+                    TPSC_EDGE_PRESSURE_IDLE_SECONDS) {
+                clear_edge_pressure("idle");
+            } else if (!edge_pressure_cursor_still_here()) {
+                clear_edge_pressure("cursor moved");
+            }
+        }
+
+        had_edge_pressure = edge_pressure_active();
 
         if (g_edge_pressure_x < 0)
-            release_x = dx > 0;
+            inward_reversal = dx > 0;
         else if (g_edge_pressure_x > 0)
-            release_x = dx < 0;
+            inward_reversal = dx < 0;
 
         if (g_edge_pressure_y < 0)
-            release_y = dy > 0;
+            inward_reversal = inward_reversal || dy > 0;
         else if (g_edge_pressure_y > 0)
-            release_y = dy < 0;
+            inward_reversal = inward_reversal || dy < 0;
 
-        if (release_x)
-            g_edge_pressure_x = 0;
-        if (release_y)
-            g_edge_pressure_y = 0;
+        /*
+         * A corner latch is one physical pressure episode. Once any latched
+         * axis genuinely reverses inward, release the entire episode rather
+         * than preserving a stale half-latch on the orthogonal axis.
+         */
+        if (inward_reversal)
+            clear_edge_pressure("inward reversal");
 
         /*
          * While still pressing an edge, only the latched outward components
@@ -337,9 +403,10 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
          */
         if (type == kCGEventMouseMoved &&
             had_edge_pressure &&
-            (g_edge_pressure_x != 0 || g_edge_pressure_y != 0)) {
+            edge_pressure_active()) {
             int64_t pressure_x = 0;
             int64_t pressure_y = 0;
+            bool forwarded = true;
 
             if ((g_edge_pressure_x < 0 && dx < 0) ||
                 (g_edge_pressure_x > 0 && dx > 0))
@@ -348,18 +415,29 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
                 (g_edge_pressure_y > 0 && dy > 0))
                 pressure_y = dy;
 
-            if (pressure_x != 0 || pressure_y != 0)
-                (void)tpsc_edge_pressure_post(pressure_x, pressure_y);
+            if (pressure_x != 0 || pressure_y != 0) {
+                forwarded = tpsc_edge_pressure_post(pressure_x, pressure_y);
+                if (forwarded)
+                    g_edge_pressure_last_outward_time = now;
+            }
 
-            position = g_edge_pressure_position;
-            CGEventSetLocation(event, position);
-            annotate_drag_event(type, event, position);
-            tpsc_pointer_rebound_observe(type, event);
+            /*
+             * Never discard pointer motion on behalf of a helper that failed
+             * to accept the corresponding virtual-HID pressure report.
+             */
+            if (!forwarded) {
+                clear_edge_pressure("helper unavailable");
+            } else {
+                position = g_edge_pressure_position;
+                CGEventSetLocation(event, position);
+                annotate_drag_event(type, event, position);
+                tpsc_pointer_rebound_observe(type, event);
 
-            g_posted_pointer_position = position;
-            g_posted_pointer_time = CFAbsoluteTimeGetCurrent();
-            g_have_posted_pointer_position = true;
-            return;
+                g_posted_pointer_position = position;
+                g_posted_pointer_time = now;
+                g_have_posted_pointer_position = true;
+                return;
+            }
         }
 
         position = project_to_active_displays(requested);
@@ -399,6 +477,10 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
                 g_edge_pressure_x = edge_x;
                 g_edge_pressure_y = edge_y;
                 g_edge_pressure_position = position;
+                g_edge_pressure_last_outward_time = now;
+                fprintf(stderr,
+                        "trackpoint: edge pressure latched x=%d y=%d\n",
+                        edge_x, edge_y);
 
                 CGEventSetLocation(event, position);
                 annotate_drag_event(type, event, position);
