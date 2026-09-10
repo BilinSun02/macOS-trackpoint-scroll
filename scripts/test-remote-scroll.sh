@@ -34,4 +34,8 @@ grep -E "core (gesture transition|feed|tick) failed|virtual-HID .* failed|IOHIDM
 echo
 echo "=== daemon startup identity ==="
 grep -E "privacy |matched HID|running for|raw HID pointer curve" "$LOG" || true
+echo
+echo "=== direct HID helper scroll path ==="
+sudo grep -E "direct floating-point HID scroll ready|direct HID scroll SPI unavailable|cannot create HID event-system client|direct HID scroll forwarding failed" \
+  "/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log" | tail -20 || true
 '
