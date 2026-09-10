@@ -218,7 +218,7 @@ usage(const char *argv0)
             "  --invert-y              reverse vertical scroll direction\n"
             "  --allow-middle-click    do not suppress Quartz middle clicks\n"
             "  --seize                 exclusively claim the HID device\n"
-            "  --edge-pressure-helper  use privileged virtual-HID helper at display edges\n"
+            "  --edge-pressure-helper  route seized pointer/buttons/scroll through virtual HID\n"
             "  --verbose               print device/gesture diagnostics\n"
             "  --help                  show this text\n",
             argv0);
