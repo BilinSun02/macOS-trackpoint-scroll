@@ -410,7 +410,15 @@ post_scroll(struct app *app, double vertical, double horizontal)
          * sole authority for the resulting direction.
          */
         {
-            double system_sign = app->system_natural_scroll ? -1.0 : 1.0;
+            /*
+             * HID wheel sign is opposite Quartz scroll-delta sign. If the
+             * system natural-scroll setting matches this application's
+             * natural_scroll setting, emit raw HID wheel direction; if the
+             * settings differ, invert it. Since vertical/horizontal already
+             * include the application's direction sign, this requires the
+             * opposite compensation from the Quartz convention.
+             */
+            double system_sign = app->system_natural_scroll ? 1.0 : -1.0;
 
             point_vertical = take_point_delta(
                 system_sign * vertical / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
