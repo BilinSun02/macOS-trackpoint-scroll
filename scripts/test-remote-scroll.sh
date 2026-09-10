@@ -58,16 +58,17 @@ awk '
     if (match($0, / v=-?[0-9]+/)) {
         v=substr($0, RSTART+3, RLENGTH-3)+0
         counts[v]++
+        seen=1
     }
 }
 END {
-    if (!length(counts)) {
+    if (!seen) {
         print "  (none)"
         exit
     }
     for (v in counts)
         printf "  v=%s count=%d\n", v, counts[v]
-}' "$LOG" | sort -n -k1.5
+}' "$LOG"
 
 echo
 echo "observed vertical point-delta summary:"
