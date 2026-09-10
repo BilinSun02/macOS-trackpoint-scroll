@@ -1158,42 +1158,27 @@ main(int argc, char **argv)
         return 1;
     }
 
-    fprintf(stderr,
-            "trackpoint: system natural-scroll=%s\n",
-            app.system_natural_scroll ? "enabled" : "disabled");
-    fprintf(stderr,
-            "trackpoint: scroll profile=%s clamp_negative_output=%s "
-            "first_step_distance=%g first_step_axis_merge_ms=%g "
-            "first_step_max_reports=%d idle_reset_ms=%g\n",
-            profile_name(app.profile.kind),
-            app.profile.clamp_negative_output ? "true" : "false",
-            config.first_step_distance,
-            config.first_step_axis_merge_ms,
-            config.first_step_max_reports,
-            config.idle_reset_ms);
-    switch (app.profile.kind) {
-    case TPSC_PROFILE_AFFINE:
-        fprintf(stderr, "trackpoint: affine k=%g b=%g\n",
-                app.profile.params.affine.k,
-                app.profile.params.affine.b);
-        break;
-    case TPSC_PROFILE_QUADRATIC:
-        fprintf(stderr, "trackpoint: quadratic a=%g h=%g k=%g\n",
-                app.profile.params.quadratic.a,
-                app.profile.params.quadratic.h,
-                app.profile.params.quadratic.k);
-        break;
-    case TPSC_PROFILE_HYPERBOLIC:
-        fprintf(stderr, "trackpoint: hyperbolic a=%g u=%g k=%g\n",
-                app.profile.params.hyperbolic.a,
-                app.profile.params.hyperbolic.u,
-                app.profile.params.hyperbolic.k);
-        break;
+    if (app.verbose) {
+        fprintf(stderr,
+                "trackpoint: system natural-scroll=%s\n",
+                app.system_natural_scroll ? "enabled" : "disabled");
+        fprintf(stderr,
+                "trackpoint: scroll profile=%s clamp_negative_output=%s "
+                "first_step_distance=%g first_step_axis_merge_ms=%g "
+                "first_step_max_reports=%d idle_reset_ms=%g\n",
+                profile_name(app.profile.kind),
+                app.profile.clamp_negative_output ? "true" : "false",
+                config.first_step_distance,
+                config.first_step_axis_merge_ms,
+                config.first_step_max_reports,
+                config.idle_reset_ms);
     }
     fprintf(stderr,
-            "trackpoint: running for vid=%04x pid=%04x, scale=%g, direction=%s%s\n",
+            "trackpoint: running for vid=%04x pid=%04x, scale=%g, "
+            "direction=%s, profile=%s%s\n",
             app.vendor_id, app.product_id, app.scroll_scale,
             config.natural_scroll ? "natural" : "traditional",
+            profile_name(app.profile.kind),
             app.seize ? (app.edge_pressure_helper
                              ? " [exclusive seize + full virtual-HID pointer]"
                              : " [exclusive seize mode]")
