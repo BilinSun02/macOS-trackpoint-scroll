@@ -875,6 +875,12 @@ setup_event_tap(struct app *app)
                                       event_tap_callback,
                                       app);
     if (!app->event_tap) {
+        if (app->seize) {
+            fprintf(stderr,
+                    "trackpoint: warning: scroll-observation event tap "
+                    "unavailable; continuing without wheel telemetry\n");
+            return 0;
+        }
         fprintf(stderr,
                 "trackpoint: cannot create Quartz event tap. Grant Input "
                 "Monitoring/Accessibility permission and relaunch.\n");
@@ -883,8 +889,17 @@ setup_event_tap(struct app *app)
 
     app->event_tap_source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault,
                                                           app->event_tap, 0);
-    if (!app->event_tap_source)
+    if (!app->event_tap_source) {
+        if (app->seize) {
+            fprintf(stderr,
+                    "trackpoint: warning: cannot create scroll-observation "
+                    "run-loop source; continuing without wheel telemetry\n");
+            CFRelease(app->event_tap);
+            app->event_tap = NULL;
+            return 0;
+        }
         return -1;
+    }
 
     CFRunLoopAddSource(CFRunLoopGetMain(), app->event_tap_source,
                        kCFRunLoopCommonModes);
