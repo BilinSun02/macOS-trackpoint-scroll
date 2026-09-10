@@ -1,6 +1,11 @@
 #include "edge_pressure_protocol.h"
 #include "karabiner_vhid.h"
 
+#include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/hid/IOHIDKeys.h>
+#include <IOKit/hidsystem/IOHIDEventSystemClient.h>
+#include <IOKit/hidsystem/IOHIDServiceClient.h>
+
 #include <errno.h>
 #include <poll.h>
 #include <signal.h>
@@ -14,6 +19,88 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+#define KARABINER_VHID_VENDOR_ID  0x16c0
+#define KARABINER_VHID_PRODUCT_ID 0x27da
+#define TPSC_LINEAR_SCROLL_ACCEL_FIXED (-65536)
+
+static bool
+cf_number_s32(CFTypeRef value, int32_t *out)
+{
+    return value &&
+           CFGetTypeID(value) == CFNumberGetTypeID() &&
+           CFNumberGetValue((CFNumberRef)value, kCFNumberSInt32Type, out);
+}
+
+static bool
+configure_virtual_hid_linear_scroll(void)
+{
+    IOHIDEventSystemClientRef system;
+    CFArrayRef services;
+    CFIndex i;
+    bool configured = false;
+
+    system = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault);
+    if (!system)
+        return false;
+
+    services = IOHIDEventSystemClientCopyServices(system);
+    if (!services) {
+        CFRelease(system);
+        return false;
+    }
+
+    for (i = 0; i < CFArrayGetCount(services); i++) {
+        IOHIDServiceClientRef service =
+            (IOHIDServiceClientRef)CFArrayGetValueAtIndex(services, i);
+        CFTypeRef vendor_ref;
+        CFTypeRef product_ref;
+        int32_t vendor = 0;
+        int32_t product = 0;
+
+        vendor_ref = IOHIDServiceClientCopyProperty(
+            service, CFSTR(kIOHIDVendorIDKey));
+        product_ref = IOHIDServiceClientCopyProperty(
+            service, CFSTR(kIOHIDProductIDKey));
+
+        (void)cf_number_s32(vendor_ref, &vendor);
+        (void)cf_number_s32(product_ref, &product);
+
+        if (vendor_ref)
+            CFRelease(vendor_ref);
+        if (product_ref)
+            CFRelease(product_ref);
+
+        if (vendor != KARABINER_VHID_VENDOR_ID ||
+            product != KARABINER_VHID_PRODUCT_ID)
+            continue;
+
+        {
+            int32_t fixed = TPSC_LINEAR_SCROLL_ACCEL_FIXED;
+            CFNumberRef value =
+                CFNumberCreate(kCFAllocatorDefault,
+                               kCFNumberSInt32Type, &fixed);
+
+            if (value) {
+                configured =
+                    IOHIDServiceClientSetProperty(
+                        service, CFSTR(kIOHIDScrollAccelerationKey), value);
+                CFRelease(value);
+            }
+        }
+
+        if (configured) {
+            fprintf(stderr,
+                    "edge-pressure-helper: disabled scroll acceleration on "
+                    "Karabiner virtual pointing service\n");
+            break;
+        }
+    }
+
+    CFRelease(services);
+    CFRelease(system);
+    return configured;
+}
 
 static volatile sig_atomic_t g_exit_requested;
 static int g_listen_fd = -1;
@@ -162,6 +249,11 @@ main(int argc, char **argv)
 
     if (tpsc_vhid_initialize() != 0)
         return 1;
+
+    if (!configure_virtual_hid_linear_scroll())
+        fprintf(stderr,
+                "edge-pressure-helper: warning: could not disable scroll "
+                "acceleration on Karabiner virtual pointing service\n");
 
     n = snprintf(g_socket_path, sizeof(g_socket_path), "%s%u.sock",
                  TPSC_EDGE_PRESSURE_SOCKET_PREFIX, (unsigned)allowed_uid);
