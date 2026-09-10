@@ -6,7 +6,7 @@ It is ad-hoc signed rather than Developer-ID signed or notarized. The installer 
 
 ## Prerequisite: Karabiner virtual HID
 
-Dock auto-hide edge pressure requires **Karabiner-DriverKit-VirtualHIDDevice** to be installed and enabled. The TrackPoint daemon remains a normal user process; a small root helper forwards only display-edge pressure through Karabiner's DriverKit virtual mouse.
+The validated pointer path requires **Karabiner-DriverKit-VirtualHIDDevice** to be installed and enabled. The TrackPoint daemon remains a normal user process; a small root helper bridges its relative pointer/button reports and scroll-carrier wheel reports to Karabiner's DriverKit virtual mouse.
 
 If you already use Karabiner-Elements, its virtual HID device is normally present. The installer checks for the Karabiner virtual-HID daemon/socket before installing the helper.
 
@@ -51,11 +51,11 @@ The installer:
 - preserves an existing `~/.config/macOS-trackpoint-scroll.conf`;
 - otherwise installs the included default config;
 - installs `~/Library/LaunchAgents/io.github.bilinsun02.macos-trackpoint-scroll.plist`;
-- prompts once for `sudo` to install the root edge-pressure helper under `/Library/PrivilegedHelperTools`;
+- prompts once for `sudo` to install the root virtual-HID bridge under `/Library/PrivilegedHelperTools`;
 - installs its LaunchDaemon under `/Library/LaunchDaemons`;
 - starts both services immediately.
 
-It does **not** compile or sign anything on the destination Mac. The main TrackPoint daemon still runs as the logged-in user; only the narrow edge-pressure helper runs as root.
+It does **not** compile or sign anything on the destination Mac. The main TrackPoint daemon still runs as the logged-in user; only the narrow virtual-HID bridge runs as root.
 
 ## 5. Grant macOS privacy permissions
 
@@ -72,7 +72,7 @@ Add or enable:
 ~/Applications/macOS-trackpoint-scroll.app
 ```
 
-Input Monitoring is needed for exclusive TrackPoint HID access. Accessibility/CoreGraphics PostEvent access is needed for active event taps and replacement Quartz events. The daemon requests these permissions explicitly when it starts. On current macOS, the Accessibility list can appear enabled before the running process is actually trusted, so use the daemon log rather than the checkbox alone: a healthy grant reports `cg-post-event=granted` and `ax-trusted=yes`.
+Input Monitoring is needed for exclusive TrackPoint HID access. Accessibility/CoreGraphics PostEvent access is needed for the active event tap that replaces macOS's accelerated virtual-wheel magnitude with the exact scroll-core output. The daemon requests these permissions explicitly when it starts. On current macOS, the Accessibility list can appear enabled before the running process is actually trusted, so use the daemon log rather than the checkbox alone: a healthy grant reports `cg-post-event=granted` and `ax-trusted=yes`.
 
 After changing either permission or accepting a newly presented prompt, restart the agent:
 
@@ -118,14 +118,13 @@ The per-user configuration file is:
 
 The installer does not overwrite an existing config.
 
-The terminal TrackPoint rebound correction is optional and off by default:
+The legacy Quartz-path TrackPoint rebound correction remains configurable but is off by default:
 
 ```text
 rebound_filter=false
 ```
 
-Set `rebound_filter=true` only if you want the validated retrospective
-exact-undo correction. It does not gate or delay live reversal.
+Leave it disabled for the installed full virtual-HID path. The retrospective correction layer currently observes the older Quartz pointer-forwarding path, not the full-VHID pointer stream.
 
 After editing the config, restart the agent:
 
