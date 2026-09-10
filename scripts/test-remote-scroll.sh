@@ -46,6 +46,6 @@ echo "=== daemon startup identity ==="
 grep -E "privacy |matched HID|running for|raw HID pointer curve|system natural-scroll|scroll profile=" "$LOG" || true
 echo
 echo "=== virtual-HID scroll configuration ==="
-sudo grep -E "effective scroll acceleration key|effective-scroll-acceleration|mouse-scroll-acceleration|legacy-scroll-acceleration|requested linear scroll|could not disable scroll acceleration" \
+sudo grep -E "scroll-acceleration-support|effective scroll acceleration key|effective-scroll-acceleration|mouse-scroll-acceleration|legacy-scroll-acceleration|disabled scroll acceleration|could not disable scroll acceleration" \
   "/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log" | tail -20 || true
 '
