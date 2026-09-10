@@ -54,11 +54,16 @@ Do not publish an ad-hoc-signed build as the normal release artifact. Rebuilt ad
 
 See [docs/INSTALLING.md](docs/INSTALLING.md) for the complete fresh-Mac installation, privacy-permission, update, and uninstall procedure.
 
-Maintainers can create the archive with:
+Maintainers can create the archive with a stable signing identity:
 
 ```sh
+IDENTITY="$(
+  security find-identity -v -p codesigning |
+  awk '/^[[:space:]]*[0-9]+\\)/ { print $2; exit }'
+)"
+
 make clean
-make dist
+MACOS_TRACKPOINT_CODESIGN_IDENTITY="$IDENTITY" make dist
 ```
 
 See [docs/PACKAGING.md](docs/PACKAGING.md) for the complete packaging and release-upload procedure.
