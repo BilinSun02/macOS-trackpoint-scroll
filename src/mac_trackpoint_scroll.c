@@ -24,7 +24,6 @@
 #define DEFAULT_VENDOR_ID  0x5859
 #define DEFAULT_PRODUCT_ID 0x0001
 #define MIDDLE_BUTTON_USAGE 3
-#define TPSC_VHID_SCROLL_PIXELS_PER_STEP 8.0
 
 struct app {
     IOHIDManagerRef hid_manager;
@@ -398,44 +397,23 @@ post_scroll(struct app *app, double vertical, double horizontal)
 
     if (app->vhid_pointer) {
         /*
-         * The scroll engine emits smooth pixel-like output. Karabiner's virtual
-         * pointing device exposes signed 8-bit wheel steps instead. Preserve
-         * low-speed motion by accumulating fractional wheel units across ticks
-         * rather than rounding each small output independently.
+         * Direct IOHID scroll events use the hardware/HID sign convention and
+         * still pass through macOS's natural-scroll direction handling. The
+         * engine output already contains this application's requested
+         * direction, so compensate for the system preference exactly once.
+         *
+         * Preserve the engine's floating-point magnitude verbatim: unlike a
+         * virtual mouse wheel, this path does not quantize to notches.
          */
-        /*
-         * Hardware-class wheel reports are inverted again by macOS when the
-         * system "Natural scrolling" preference is enabled. Compensate for
-         * that here so this application's natural_scroll setting remains the
-         * sole authority for the resulting direction.
-         */
-        {
-            /*
-             * HID wheel sign is opposite Quartz scroll-delta sign. If the
-             * system natural-scroll setting matches this application's
-             * natural_scroll setting, emit raw HID wheel direction; if the
-             * settings differ, invert it. Since vertical/horizontal already
-             * include the application's direction sign, this requires the
-             * opposite compensation from the Quartz convention.
-             */
-            double system_sign = app->system_natural_scroll ? 1.0 : -1.0;
-
-            point_vertical = take_point_delta(
-                system_sign * vertical / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
-                &app->point_remainder_y);
-            point_horizontal = take_point_delta(
-                system_sign * horizontal / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
-                &app->point_remainder_x);
-        }
-
-        if (point_vertical == 0 && point_horizontal == 0)
-            return;
+        double system_sign = app->system_natural_scroll ? 1.0 : -1.0;
 
         if (!tpsc_edge_pressure_post_report(
-                0, 0, point_vertical, point_horizontal,
+                0, 0,
+                system_sign * horizontal,
+                system_sign * vertical,
                 vhid_button_mask(app)))
             fprintf(stderr,
-                    "trackpoint: virtual-HID scroll forwarding failed\n");
+                    "trackpoint: direct HID scroll forwarding failed\n");
         return;
     }
 
