@@ -9,8 +9,8 @@
 struct tpsc_edge_pressure_message {
     int64_t dx;
     int64_t dy;
-    double scroll_x;
-    double scroll_y;
+    int64_t vertical_wheel;
+    int64_t horizontal_wheel;
     uint32_t buttons;
 };
 
