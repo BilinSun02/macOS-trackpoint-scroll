@@ -46,72 +46,47 @@ printf "raw motion samples: "
 grep -Ec "trackpoint: raw [xy]=" "$LOG" || true
 printf "scroll outputs: "
 grep -Ec "trackpoint: scroll x=" "$LOG" || true
-printf "VHID wheel reports: "
-grep -Ec "trackpoint: vhid-wheel send " "$LOG" || true
-printf "observed wheel events: "
-grep -Ec "trackpoint: observed-wheel " "$LOG" || true
+printf "VHID wheel carriers: "
+grep -Ec "trackpoint: vhid-wheel carrier " "$LOG" || true
+printf "rewritten wheel events: "
+grep -Ec "trackpoint: rewrite-wheel observed-point" "$LOG" || true
 
 echo
-echo "sent vertical wheel-count distribution:"
+echo "rewrite magnitude summary:"
 awk '
-/trackpoint: vhid-wheel send / {
-    if (match($0, / v=-?[0-9]+/)) {
-        v=substr($0, RSTART+3, RLENGTH-3)+0
-        counts[v]++
-        seen=1
-    }
-}
-END {
-    if (!seen) {
-        print "  (none)"
-        exit
-    }
-    for (v in counts)
-        printf "  v=%s count=%d\n", v, counts[v]
-}' "$LOG"
+/trackpoint: rewrite-wheel observed-point/ {
+    line=$0
+    if (match(line, /observed-point\[h=-?[0-9]+ v=-?[0-9]+\]/)) {
+        t=substr(line,RSTART,RLENGTH)
+        sub(/^.* v=/,"",t)
+        sub(/\]$/,"",t)
+        ov=t+0
+        oa=(ov<0?-ov:ov)
+    } else next
 
-echo
-echo "observed vertical point-delta summary:"
-awk '
-/trackpoint: observed-wheel / {
-    if (match($0, /point\[h=-?[0-9]+ v=-?[0-9]+\]/)) {
-        token=substr($0, RSTART, RLENGTH)
-        sub(/^.* v=/, "", token)
-        sub(/\]$/, "", token)
-        v=token+0
-        a=(v < 0 ? -v : v)
-        if (a > 0) {
-            n++
-            sum += a
-            if (n == 1 || a < min) min=a
-            if (n == 1 || a > max) max=a
-            if (n <= 5) first[n]=a
-            last1=last2
-            last2=last3
-            last3=last4
-            last4=last5
-            last5=a
-        }
-    }
+    if (match(line, /target-fixed\[h=[^ ]+ v=[^]]+\]/)) {
+        t=substr(line,RSTART,RLENGTH)
+        sub(/^.* v=/,"",t)
+        sub(/\]$/,"",t)
+        tv=t+0
+        ta=(tv<0?-tv:tv)
+    } else next
+
+    n++
+    osum+=oa
+    tsum+=ta
+    if (n==1 || oa<omin) omin=oa
+    if (n==1 || oa>omax) omax=oa
+    if (n==1 || ta<tmin) tmin=ta
+    if (n==1 || ta>tmax) tmax=ta
 }
 END {
     if (!n) {
         print "  (none)"
         exit
     }
-    printf "  nonzero events=%d min_abs=%g max_abs=%g mean_abs=%.2f\n",
-           n, min, max, sum/n
-    printf "  first_abs:"
-    for (i=1; i<=n && i<=5; i++)
-        printf " %g", first[i]
-    printf "\n"
-    printf "  last_abs:"
-    if (n >= 5)
-        printf " %g %g %g %g %g", last1, last2, last3, last4, last5
-    else
-        for (i=1; i<=n; i++)
-            printf " %g", first[i]
-    printf "\n"
+    printf "  events=%d observed_abs[min=%g max=%g mean=%.2f]\n", n, omin, omax, osum/n
+    printf "  target_abs[min=%g max=%g mean=%.3f]\n", tmin, tmax, tsum/n
 }' "$LOG"
 
 echo
@@ -128,5 +103,5 @@ sudo grep -E "scroll-acceleration-support|effective scroll acceleration key|effe
   "/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log" | tail -20 || true
 REMOTE_TEST
 
-ssh -t "$REMOTE" "sh '$REMOTE_SCRIPT'; status=\$?; rm -f '$REMOTE_SCRIPT'; exit \$status"
+ssh -t "$REMOTE" "sh '$REMOTE_SCRIPT'; rc=\$?; rm -f '$REMOTE_SCRIPT'; exit \$rc"
 trap - EXIT HUP INT TERM
