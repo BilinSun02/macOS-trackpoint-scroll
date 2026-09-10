@@ -36,7 +36,7 @@ make dist
 `make dist` runs `scripts/package-release.sh`. It:
 
 - creates a minimal `macOS-trackpoint-scroll.app` bundle around the already-built executable;
-- embeds the edge-pressure helper under `Contents/Helpers`;
+- embeds the privileged virtual-HID helper under `Contents/Helpers`;
 - ad-hoc signs the nested helper first, then the app bundle;
 - verifies both signatures;
 - includes the identity-free installer/uninstaller, root-helper installer/uninstaller, default config example, README, and installation guide;
@@ -101,7 +101,7 @@ sudo tail -f "/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.
 
 Exercise Dock reveal repeatedly, including after more than 30 seconds of idle time, to verify the Karabiner virtual-HID heartbeat/reconnect path.
 
-The release installer deliberately does **not** run `make`, `clang`, `security find-identity`, or `codesign`. It installs the prebuilt app/LaunchAgent and uses `sudo` only to install/start the already-built edge-pressure helper LaunchDaemon.
+The release installer deliberately does **not** run `make`, `clang`, `security find-identity`, or `codesign`. It installs the prebuilt app/LaunchAgent and uses `sudo` only to install/start the already-built virtual-HID helper LaunchDaemon.
 
 ## 6. Publish
 
