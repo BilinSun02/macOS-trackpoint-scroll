@@ -12,7 +12,7 @@ Tested adapter:
 
 ## v1 architecture
 
-The hardware-validated path uses exclusive HID ownership (`--seize`) together with full virtual-HID forwarding (`--vhid-pointer`). The daemon reads the target mouse through IOKit, preventing the normal macOS mouse stack from consuming its reports. It then:
+The hardware-validated path uses exclusive HID ownership (`--seize`) together with the privileged virtual-HID helper (`--edge-pressure-helper`). The daemon reads the target mouse through IOKit, preventing the normal macOS mouse stack from consuming its reports. It then:
 
 - applies the optional raw-HID pointer speed/acceleration curve to ordinary motion;
 - forwards ordinary pointer motion and button state through Karabiner's DriverKit virtual mouse;
@@ -105,7 +105,7 @@ The per-user LaunchAgent is installed at:
 ~/Library/LaunchAgents/io.github.bilinsun02.macos-trackpoint-scroll.plist
 ```
 
-The LaunchAgent runs the app executable with `--seize --edge-pressure-helper --vhid-pointer` in the logged-in GUI session. Installation prompts once for `sudo` to install/start the narrow root virtual-HID bridge; the main TrackPoint daemon itself remains a normal user process.
+The LaunchAgent runs the app executable with `--seize --edge-pressure-helper` in the logged-in GUI session. Installation prompts once for `sudo` to install/start the narrow root virtual-HID bridge; the main TrackPoint daemon itself remains a normal user process.
 
 ### macOS privacy permissions
 
@@ -268,7 +268,7 @@ scroll event that macOS accepts.
 For debugging outside launchd while matching the installed architecture:
 
 ```sh
-./build/macOS-trackpoint-scroll --seize --edge-pressure-helper --vhid-pointer --verbose
+./build/macOS-trackpoint-scroll --seize --edge-pressure-helper --verbose
 ```
 
 The privileged helper must already be installed/running for that command.
