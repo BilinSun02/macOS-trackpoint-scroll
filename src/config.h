@@ -3,9 +3,30 @@
 
 #include <stdbool.h>
 
+#include "trackpoint_scroll/profiles.h"
+
 struct macos_trackpoint_config {
     bool natural_scroll;
     double scroll_scale;
+
+    enum tpsc_profile_kind profile;
+    bool clamp_negative_output;
+    double first_step_distance;
+    double first_step_axis_merge_ms;
+    int first_step_max_reports;
+    double idle_reset_ms;
+
+    double affine_k;
+    double affine_b;
+
+    double quadratic_a;
+    double quadratic_h;
+    double quadratic_k;
+
+    double hyperbolic_a;
+    double hyperbolic_u;
+    double hyperbolic_k;
+
     bool suppress_middle_click;
     bool rebound_filter;
     double pointer_speed;
