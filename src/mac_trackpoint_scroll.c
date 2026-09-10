@@ -49,6 +49,7 @@ struct app {
     bool vhid_pointer;
     bool verbose;
     bool suppress_middle_click;
+    bool system_natural_scroll;
     bool middle_down;
     bool left_down;
     bool right_down;
@@ -79,6 +80,27 @@ static uint64_t
 now_us(void)
 {
     return mach_ticks_to_us(mach_absolute_time());
+}
+
+static bool
+system_natural_scroll_enabled(void)
+{
+    CFTypeRef value;
+    bool enabled = false;
+
+    value = CFPreferencesCopyValue(
+        CFSTR("com.apple.swipescrolldirection"),
+        kCFPreferencesAnyApplication,
+        kCFPreferencesCurrentUser,
+        kCFPreferencesAnyHost);
+    if (!value)
+        return false;
+
+    if (CFGetTypeID(value) == CFBooleanGetTypeID())
+        enabled = CFBooleanGetValue((CFBooleanRef)value);
+
+    CFRelease(value);
+    return enabled;
 }
 
 static bool
@@ -381,12 +403,22 @@ post_scroll(struct app *app, double vertical, double horizontal)
          * low-speed motion by accumulating fractional wheel units across ticks
          * rather than rounding each small output independently.
          */
-        point_vertical = take_point_delta(
-            vertical / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
-            &app->point_remainder_y);
-        point_horizontal = take_point_delta(
-            horizontal / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
-            &app->point_remainder_x);
+        /*
+         * Hardware-class wheel reports are inverted again by macOS when the
+         * system "Natural scrolling" preference is enabled. Compensate for
+         * that here so this application's natural_scroll setting remains the
+         * sole authority for the resulting direction.
+         */
+        {
+            double system_sign = app->system_natural_scroll ? -1.0 : 1.0;
+
+            point_vertical = take_point_delta(
+                system_sign * vertical / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
+                &app->point_remainder_y);
+            point_horizontal = take_point_delta(
+                system_sign * horizontal / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
+                &app->point_remainder_x);
+        }
 
         if (point_vertical == 0 && point_horizontal == 0)
             return;
@@ -965,6 +997,7 @@ main(int argc, char **argv)
 
     app.scroll_scale = config.scroll_scale;
     app.suppress_middle_click = config.suppress_middle_click;
+    app.system_natural_scroll = system_natural_scroll_enabled();
     if (config.natural_scroll) {
         app.x_sign *= -1.0;
         app.y_sign *= -1.0;
@@ -999,6 +1032,9 @@ main(int argc, char **argv)
         return 1;
     }
 
+    fprintf(stderr,
+            "trackpoint: system natural-scroll=%s\n",
+            app.system_natural_scroll ? "enabled" : "disabled");
     fprintf(stderr,
             "trackpoint: running for vid=%04x pid=%04x, scale=%g, direction=%s%s\n",
             app.vendor_id, app.product_id, app.scroll_scale,
