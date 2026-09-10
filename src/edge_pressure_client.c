@@ -95,11 +95,16 @@ write_all(const void *buffer, size_t size)
 }
 
 bool
-tpsc_edge_pressure_post_state(int64_t dx, int64_t dy, uint32_t buttons)
+tpsc_edge_pressure_post_report(int64_t dx, int64_t dy,
+                                int64_t vertical_wheel,
+                                int64_t horizontal_wheel,
+                                uint32_t buttons)
 {
     struct tpsc_edge_pressure_message message = {
         .dx = dx,
         .dy = dy,
+        .vertical_wheel = vertical_wheel,
+        .horizontal_wheel = horizontal_wheel,
         .buttons = buttons,
     };
 
@@ -122,9 +127,15 @@ tpsc_edge_pressure_post_state(int64_t dx, int64_t dy, uint32_t buttons)
 }
 
 bool
+tpsc_edge_pressure_post_state(int64_t dx, int64_t dy, uint32_t buttons)
+{
+    return tpsc_edge_pressure_post_report(dx, dy, 0, 0, buttons);
+}
+
+bool
 tpsc_edge_pressure_post(int64_t dx, int64_t dy)
 {
     if (dx == 0 && dy == 0)
         return true;
-    return tpsc_edge_pressure_post_state(dx, dy, 0);
+    return tpsc_edge_pressure_post_report(dx, dy, 0, 0, 0);
 }
