@@ -27,7 +27,7 @@ typedef double tpsc_IOHIDFloat;
 typedef IOHIDEventSystemClientRef (*tpsc_hid_client_create_fn)(CFAllocatorRef);
 typedef tpsc_IOHIDEventRef (*tpsc_hid_scroll_create_fn)(
     CFAllocatorRef, uint64_t, tpsc_IOHIDFloat, tpsc_IOHIDFloat,
-    tpsc_IOHIDFloat, IOOptionBits);
+    tpsc_IOHIDFloat, uint32_t);
 typedef void (*tpsc_hid_event_set_flags_fn)(tpsc_IOHIDEventRef, uint32_t);
 typedef void (*tpsc_hid_dispatch_fn)(IOHIDEventSystemClientRef,
                                      tpsc_IOHIDEventRef);
