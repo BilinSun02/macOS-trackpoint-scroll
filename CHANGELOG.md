@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.0 - 2026-09-10
+
+Hardware-validated virtual-HID pointer and exact-scroll release.
+
+### Changed
+
+- Use exclusive TrackPoint ownership plus a relative Karabiner DriverKit virtual mouse for ordinary pointer motion and left/right button state.
+- Use a unit virtual-HID wheel event as the hardware-class scroll carrier, then rewrite its CoreGraphics delta/point/fixed magnitudes to the exact floating-point output produced by `trackpoint-scroll-core`.
+- Keep the privileged helper as a narrow pointer/button/wheel bridge with heartbeat, reconnect/reinitialize, UID-restricted IPC, and defensive all-buttons-up cleanup.
+- Expose the shared core's affine, quadratic, and hyperbolic profiles and reconstruction timing parameters through the macOS config.
+- Request and report Input Monitoring, CoreGraphics PostEvent access, and Accessibility trust as separate runtime gates.
+
+### Fixed
+
+- Eliminate the small-motion deadzone caused by reconstructing a seized relative pointer through absolute Quartz cursor events.
+- Eliminate edge-pressure axis locking and delayed inward reversal in the canonical path.
+- Restore repeatable Dock auto-hide edge pressure, including after virtual-HID idle periods.
+- Remove macOS's steep rate-dependent wheel amplification from TrackPoint scrolling by rewriting the carrier event to the core's intended magnitude.
+- Preserve configured natural-scroll direction on the virtual-HID path.
+- Prevent a user-daemon disconnect from leaving virtual mouse buttons logically held.
+
+### Packaging
+
+- Require a stable Apple-issued signing identity for normal `make dist` packaging.
+- Keep ad-hoc packaging only as an explicit diagnostic/CI opt-in because rebuilt ad-hoc apps do not provide stable TCC identity.
+
 ## 1.0.2 - 2026-08-29
 
 Hardware-validated synthetic click-state bugfix.

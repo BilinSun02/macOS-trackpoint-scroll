@@ -2,7 +2,7 @@
 
 A macOS port of [`libinput-trackpoint-scroll`](https://github.com/BilinSun02/libinput-trackpoint-scroll), using the same pinned [`trackpoint-scroll-core`](https://github.com/BilinSun02/trackpoint-scroll-core) reconstruction/transfer engine.
 
-Current stable version: **1.1.0**.
+Current stable version: **1.2.0**.
 
 Tested adapter:
 
@@ -10,7 +10,7 @@ Tested adapter:
 - product `0x0001`
 - `xy_3dg12 xy_3dg12 USB RF Adapter`
 
-## v1 architecture
+## Architecture
 
 The hardware-validated path uses exclusive HID ownership (`--seize`) together with the privileged virtual-HID helper (`--edge-pressure-helper`). The daemon reads the target mouse through IOKit, preventing the normal macOS mouse stack from consuming its reports. It then:
 
@@ -42,7 +42,7 @@ Pointer acceleration is applied before the virtual-HID report is emitted, using 
 
 ## Prebuilt release installation
 
-A prebuilt release can be installed on a Mac with **no Xcode, compiler toolchain, or Apple code-signing identity**.
+A prebuilt release can be installed on a destination Mac with **no Xcode, compiler toolchain, or Apple code-signing identity**. Published artifacts should be packaged on a maintainer Mac with a stable Apple-issued signing identity so macOS TCC can recognize the application across rebuilds.
 
 Download the `.tar.gz` release, extract it, and run:
 
@@ -50,7 +50,7 @@ Download the `.tar.gz` release, extract it, and run:
 ./install.sh
 ```
 
-The release app is ad-hoc signed during packaging. It is intentionally not Developer-ID signed or notarized, and the installer clears quarantine from the installed copy after you explicitly run it.
+Do not publish an ad-hoc-signed build as the normal release artifact. Rebuilt ad-hoc binaries have an unstable TCC identity; ad-hoc packaging is retained only as an explicit diagnostic/CI fallback. For public distribution, Developer ID Application signing and notarization are the appropriate Apple distribution path.
 
 See [docs/INSTALLING.md](docs/INSTALLING.md) for the complete fresh-Mac installation, privacy-permission, update, and uninstall procedure.
 
@@ -62,6 +62,8 @@ make dist
 ```
 
 See [docs/PACKAGING.md](docs/PACKAGING.md) for the complete packaging and release-upload procedure.
+
+For durable architecture rules, known macOS input-stack behavior, symptom-to-cause guidance, and debugging practices, see [docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md).
 
 ## Build
 

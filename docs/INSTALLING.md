@@ -1,8 +1,8 @@
 # Installing a prebuilt release
 
-The prebuilt release is intended for a Mac that does **not** have Xcode, a compiler toolchain, or an Apple code-signing identity.
+The prebuilt release is intended for a destination Mac that does **not** have Xcode, a compiler toolchain, or an Apple code-signing identity.
 
-It is ad-hoc signed rather than Developer-ID signed or notarized. The installer clears quarantine from the installed copy after you explicitly run it.
+Published artifacts should be built on a maintainer Mac and signed with a stable Apple-issued identity. The destination Mac does not need that identity. Do not use an ad-hoc-signed build as the normal release artifact: rebuilt ad-hoc binaries have an unstable TCC identity, so Input Monitoring/PostEvent/Accessibility grants can appear enabled yet fail to authorize the running process. The installer clears quarantine from the installed copy after you explicitly run it.
 
 ## Prerequisite: Karabiner virtual HID
 
@@ -136,7 +136,7 @@ launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
 
 Download and extract the newer release, then run its `./install.sh`. The installer replaces the app and LaunchAgent while preserving the existing config.
 
-Because releases are ad-hoc signed rather than Developer-ID signed, macOS may require the Input Monitoring and Accessibility grants to be enabled again after an update.
+With a stable signing identity and bundle identifier, macOS has a stable code identity on which to base TCC authorization. Still verify the daemon's runtime permission log after an update; the System Settings checkbox alone is not authoritative.
 
 ## Uninstalling
 
@@ -150,6 +150,4 @@ This removes the LaunchAgent, installed app, root edge-pressure LaunchDaemon, an
 
 ## Gatekeeper / quarantine note
 
-This is deliberately an unsigned-for-distribution, non-notarized release. The app itself carries an ad-hoc code signature, but it does not identify an Apple-registered developer.
-
-The supplied installer clears the browser/GitHub quarantine attribute only from the installed copy. If macOS blocks running `install.sh` itself, invoke it from Terminal as shown above. No Xcode installation or local signing identity is required.
+The supplied installer clears the browser/GitHub quarantine attribute only from the installed copy. A privately shared/test artifact may use a stable Apple Development identity; a broadly distributed release should use Developer ID Application signing and notarization. The destination Mac still does not need Xcode or a local signing identity.

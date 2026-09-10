@@ -17,7 +17,7 @@ Linux needed a udev pointing-stick classification because libinput selected Trac
 
 The tested adapter's report descriptor exposes ordinary relative mouse axes/buttons. The program therefore treats device identity and TrackPoint policy as application concerns rather than relying on macOS to classify the hardware specially.
 
-## Supported v1 mode: exclusive seize
+## Supported mode: exclusive seize
 
 The validated v1 path opens the matching HID device with `kIOHIDOptionsTypeSeizeDevice`.
 

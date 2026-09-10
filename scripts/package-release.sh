@@ -71,8 +71,18 @@ plutil -lint "$CONTENTS_DIR/Info.plist" >/dev/null
 # stable macOS privacy/TCC authorization across releases.
 SIGN_IDENTITY="${MACOS_TRACKPOINT_CODESIGN_IDENTITY:-}"
 if [ -z "$SIGN_IDENTITY" ]; then
+    if [ "${MACOS_TRACKPOINT_ALLOW_ADHOC:-0}" != "1" ]; then
+        cat >&2 <<'EOF'
+error: no release code-signing identity was provided.
+
+Set MACOS_TRACKPOINT_CODESIGN_IDENTITY to a stable Apple-issued identity.
+For diagnostic/CI packaging only, explicitly opt in to ad-hoc signing with:
+  MACOS_TRACKPOINT_ALLOW_ADHOC=1 make dist
+EOF
+        exit 1
+    fi
     SIGN_IDENTITY="-"
-    echo "warning: packaging with an ad-hoc signature; TCC permissions will not have a stable code identity" >&2
+    echo "warning: explicit ad-hoc package; do not publish as the normal release artifact" >&2
 else
     echo "release code-signing identity: $SIGN_IDENTITY"
 fi
