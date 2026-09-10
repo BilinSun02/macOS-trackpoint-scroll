@@ -34,6 +34,15 @@ cf_number_s32(CFTypeRef value, int32_t *out)
 }
 
 static bool
+set_service_bool_property(IOHIDServiceClientRef service,
+                          CFStringRef key,
+                          bool value)
+{
+    return IOHIDServiceClientSetProperty(
+        service, key, value ? kCFBooleanTrue : kCFBooleanFalse);
+}
+
+static bool
 set_service_fixed_property(IOHIDServiceClientRef service,
                            CFStringRef key,
                            int32_t fixed)
@@ -64,6 +73,26 @@ log_service_number(IOHIDServiceClientRef service,
                 label, fixed, (double)fixed / 65536.0);
     } else {
         fprintf(stderr, "edge-pressure-helper: %s=(unset/non-number)\n",
+                label);
+    }
+
+    if (value)
+        CFRelease(value);
+}
+
+static void
+log_service_bool(IOHIDServiceClientRef service,
+                 const char *label,
+                 CFStringRef key)
+{
+    CFTypeRef value = IOHIDServiceClientCopyProperty(service, key);
+
+    if (value && CFGetTypeID(value) == CFBooleanGetTypeID()) {
+        fprintf(stderr, "edge-pressure-helper: %s=%s\n",
+                label,
+                CFBooleanGetValue((CFBooleanRef)value) ? "true" : "false");
+    } else {
+        fprintf(stderr, "edge-pressure-helper: %s=(unset/non-boolean)\n",
                 label);
     }
 
@@ -116,6 +145,17 @@ configure_virtual_hid_linear_scroll(void)
             product != KARABINER_VHID_PRODUCT_ID)
             continue;
 
+        /*
+         * Disable the scroll-acceleration stage itself. Apple's
+         * IOHIDPointerScrollFilter gates acceleration on this boolean before
+         * consulting/using the accelerator object. This is stronger than only
+         * setting the numeric acceleration value negative, which may leave a
+         * previously-created accelerator object alive.
+         */
+        configured = set_service_bool_property(
+            service, CFSTR(kIOHIDScrollAccelerationSupportKey), false) ||
+            configured;
+
         type_ref = IOHIDServiceClientCopyProperty(
             service, CFSTR("HIDScrollAccelerationType"));
 
@@ -149,6 +189,8 @@ configure_virtual_hid_linear_scroll(void)
             service, CFSTR(kIOHIDScrollAccelerationKey), fixed) ||
             configured;
 
+        log_service_bool(service, "scroll-acceleration-support",
+                         CFSTR(kIOHIDScrollAccelerationSupportKey));
         if (type_ref && CFGetTypeID(type_ref) == CFStringGetTypeID())
             log_service_number(service, "effective-scroll-acceleration",
                                (CFStringRef)type_ref);
@@ -162,7 +204,7 @@ configure_virtual_hid_linear_scroll(void)
 
         if (configured) {
             fprintf(stderr,
-                    "edge-pressure-helper: requested linear scroll on "
+                    "edge-pressure-helper: disabled scroll acceleration on "
                     "Karabiner virtual pointing service\n");
             break;
         }
