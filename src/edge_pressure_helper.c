@@ -7,6 +7,7 @@
 #include <IOKit/hidsystem/IOHIDServiceClient.h>
 
 #include <errno.h>
+#include <inttypes.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
@@ -33,6 +34,44 @@ cf_number_s32(CFTypeRef value, int32_t *out)
 }
 
 static bool
+set_service_fixed_property(IOHIDServiceClientRef service,
+                           CFStringRef key,
+                           int32_t fixed)
+{
+    CFNumberRef value;
+    bool ok;
+
+    value = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &fixed);
+    if (!value)
+        return false;
+
+    ok = IOHIDServiceClientSetProperty(service, key, value);
+    CFRelease(value);
+    return ok;
+}
+
+static void
+log_service_number(IOHIDServiceClientRef service,
+                   const char *label,
+                   CFStringRef key)
+{
+    CFTypeRef value = IOHIDServiceClientCopyProperty(service, key);
+    int32_t fixed;
+
+    if (cf_number_s32(value, &fixed)) {
+        fprintf(stderr,
+                "edge-pressure-helper: %s=%" PRId32 " (%.4f)\n",
+                label, fixed, (double)fixed / 65536.0);
+    } else {
+        fprintf(stderr, "edge-pressure-helper: %s=(unset/non-number)\n",
+                label);
+    }
+
+    if (value)
+        CFRelease(value);
+}
+
+static bool
 configure_virtual_hid_linear_scroll(void)
 {
     IOHIDEventSystemClientRef system;
@@ -55,8 +94,10 @@ configure_virtual_hid_linear_scroll(void)
             (IOHIDServiceClientRef)CFArrayGetValueAtIndex(services, i);
         CFTypeRef vendor_ref;
         CFTypeRef product_ref;
+        CFTypeRef type_ref;
         int32_t vendor = 0;
         int32_t product = 0;
+        int32_t fixed = TPSC_LINEAR_SCROLL_ACCEL_FIXED;
 
         vendor_ref = IOHIDServiceClientCopyProperty(
             service, CFSTR(kIOHIDVendorIDKey));
@@ -75,23 +116,53 @@ configure_virtual_hid_linear_scroll(void)
             product != KARABINER_VHID_PRODUCT_ID)
             continue;
 
-        {
-            int32_t fixed = TPSC_LINEAR_SCROLL_ACCEL_FIXED;
-            CFNumberRef value =
-                CFNumberCreate(kCFAllocatorDefault,
-                               kCFNumberSInt32Type, &fixed);
+        type_ref = IOHIDServiceClientCopyProperty(
+            service, CFSTR("HIDScrollAccelerationType"));
 
-            if (value) {
-                configured =
-                    IOHIDServiceClientSetProperty(
-                        service, CFSTR(kIOHIDScrollAccelerationKey), value);
-                CFRelease(value);
+        if (type_ref && CFGetTypeID(type_ref) == CFStringGetTypeID()) {
+            configured = set_service_fixed_property(
+                service, (CFStringRef)type_ref, fixed) || configured;
+
+            {
+                char key_name[256];
+                if (CFStringGetCString((CFStringRef)type_ref,
+                                       key_name, sizeof(key_name),
+                                       kCFStringEncodingUTF8))
+                    fprintf(stderr,
+                            "edge-pressure-helper: effective scroll "
+                            "acceleration key=%s\n",
+                            key_name);
             }
+        } else {
+            fprintf(stderr,
+                    "edge-pressure-helper: HIDScrollAccelerationType=(unset)\n");
         }
+
+        /*
+         * Also set modern mouse-specific and legacy fallbacks. WebKit's
+         * current macOS acceleration lookup uses this same precedence chain.
+         */
+        configured = set_service_fixed_property(
+            service, CFSTR(kIOHIDMouseScrollAccelerationKey), fixed) ||
+            configured;
+        configured = set_service_fixed_property(
+            service, CFSTR(kIOHIDScrollAccelerationKey), fixed) ||
+            configured;
+
+        if (type_ref && CFGetTypeID(type_ref) == CFStringGetTypeID())
+            log_service_number(service, "effective-scroll-acceleration",
+                               (CFStringRef)type_ref);
+        log_service_number(service, "mouse-scroll-acceleration",
+                           CFSTR(kIOHIDMouseScrollAccelerationKey));
+        log_service_number(service, "legacy-scroll-acceleration",
+                           CFSTR(kIOHIDScrollAccelerationKey));
+
+        if (type_ref)
+            CFRelease(type_ref);
 
         if (configured) {
             fprintf(stderr,
-                    "edge-pressure-helper: disabled scroll acceleration on "
+                    "edge-pressure-helper: requested linear scroll on "
                     "Karabiner virtual pointing service\n");
             break;
         }
