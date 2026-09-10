@@ -69,22 +69,22 @@ codesign -dr - "$APP" 2>&1 || true
 '
 
 echo "==> enabling full virtual-HID pointer test mode"
-ssh "$REMOTE" "
+ssh "$REMOTE" 'sh -s' <<'REMOTE_ENABLE'
 set -eu
 LABEL='io.github.bilinsun02.macos-trackpoint-scroll'
-PLIST="\$HOME/Library/LaunchAgents/\$LABEL.plist"
-DOMAIN="gui/\$(id -u)"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DOMAIN="gui/$(id -u)"
 
-launchctl bootout "\$DOMAIN" "\$PLIST" >/dev/null 2>&1 || true
+launchctl bootout "$DOMAIN" "$PLIST" >/dev/null 2>&1 || true
 
-if ! /usr/libexec/PlistBuddy -c 'Print :ProgramArguments' "\$PLIST" |
+if ! /usr/libexec/PlistBuddy -c 'Print :ProgramArguments' "$PLIST" |
      grep -q -- '--vhid-pointer'; then
-    /usr/libexec/PlistBuddy -c 'Add :ProgramArguments:3 string --vhid-pointer' "\$PLIST"
+    /usr/libexec/PlistBuddy -c 'Add :ProgramArguments:3 string --vhid-pointer' "$PLIST"
 fi
 
-plutil -lint "\$PLIST" >/dev/null
-launchctl bootstrap "\$DOMAIN" "\$PLIST"
-"
+plutil -lint "$PLIST" >/dev/null
+launchctl bootstrap "$DOMAIN" "$PLIST"
+REMOTE_ENABLE
 
 echo "==> restarting user agent with a fresh log"
 ssh "$REMOTE" '
