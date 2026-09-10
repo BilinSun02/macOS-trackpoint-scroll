@@ -48,7 +48,7 @@ build/edge_pressure_client.o: src/edge_pressure_client.c src/edge_pressure_clien
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/event_shim.o: src/event_shim.c src/event_shim.h src/pointer_rebound.h src/edge_pressure_client.h
+build/event_shim.o: src/event_shim.c src/event_shim.h src/pointer_rebound.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
