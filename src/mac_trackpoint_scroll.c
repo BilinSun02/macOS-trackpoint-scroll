@@ -780,8 +780,6 @@ main(int argc, char **argv)
 
     (void)mach_timebase_info(&g_timebase);
 
-    check_privacy_access();
-
     macos_trackpoint_config_defaults(&config);
     selected_config = config_path_from_args(argc, argv,
                                              config_path, sizeof(config_path));
@@ -806,6 +804,8 @@ main(int argc, char **argv)
                 "trackpoint: --edge-pressure-helper requires --seize\n");
         return 2;
     }
+
+    check_privacy_access();
     tpsc_edge_pressure_client_set_enabled(app.edge_pressure_helper);
     if (tpsc_pointer_rebound_set_enabled(config.rebound_filter) != 0)
         return 1;
