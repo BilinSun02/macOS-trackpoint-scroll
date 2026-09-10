@@ -464,8 +464,7 @@ post_relative_motion(int64_t dx, int64_t dy, struct app *app)
         button = kCGMouseButtonRight;
     }
 
-    event = CGEventCreateMouseEvent(pointer_event_source(),
-                                    type, position, button);
+    event = CGEventCreateMouseEvent(NULL, type, position, button);
     if (!event)
         return;
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaX, dx);
