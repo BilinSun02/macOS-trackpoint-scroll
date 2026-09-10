@@ -7,21 +7,36 @@ if [ "$#" -lt 1 ]; then
 fi
 
 REMOTE="$1"
+REMOTE_SCRIPT="/tmp/macos-trackpoint-scroll-test-$$.sh"
 
-ssh -t "$REMOTE" '
+cleanup()
+{
+    ssh "$REMOTE" "rm -f '$REMOTE_SCRIPT'" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT HUP INT TERM
+
+# Upload the test body separately so its awk programs and interactive reads do
+# not have to survive nested ssh/shell quoting.
+ssh "$REMOTE" "cat > '$REMOTE_SCRIPT' && chmod 700 '$REMOTE_SCRIPT'" <<'REMOTE_TEST'
+#!/bin/sh
 set -eu
+
 LOG="$HOME/Library/Logs/macOS-trackpoint-scroll/stderr.log"
 
-# Authenticate up front so the password prompt does not appear after the timed
-# interaction has already finished.
+# Authenticate before the interaction window begins.
 sudo -v
 
 echo
 echo "=== middle-scroll test ==="
-echo "For the next 8 seconds, hold the TrackPoint middle button and move the"
-echo "TrackPoint enough that scrolling should clearly occur."
+echo "For 8 seconds after you press Enter, hold the TrackPoint middle button and"
+echo "move the TrackPoint enough that scrolling should clearly occur."
+printf "Press Enter to begin: "
+IFS= read -r _ </dev/tty
+
 : > "$LOG"
+echo "Testing..."
 sleep 8
+echo "Done."
 
 echo
 echo "=== compact scroll summary ==="
@@ -46,6 +61,10 @@ awk '
     }
 }
 END {
+    if (!length(counts)) {
+        print "  (none)"
+        exit
+    }
     for (v in counts)
         printf "  v=%s count=%d\n", v, counts[v]
 }' "$LOG" | sort -n -k1.5
@@ -66,7 +85,11 @@ awk '
             if (n == 1 || a < min) min=a
             if (n == 1 || a > max) max=a
             if (n <= 5) first[n]=a
-            last1=last2; last2=last3; last3=last4; last4=last5; last5=a
+            last1=last2
+            last2=last3
+            last3=last4
+            last4=last5
+            last5=a
         }
     }
 }
@@ -78,25 +101,31 @@ END {
     printf "  nonzero events=%d min_abs=%g max_abs=%g mean_abs=%.2f\n",
            n, min, max, sum/n
     printf "  first_abs:"
-    for (i=1; i<=n && i<=5; i++) printf " %g", first[i]
+    for (i=1; i<=n && i<=5; i++)
+        printf " %g", first[i]
     printf "\n"
     printf "  last_abs:"
-    if (n >= 5) printf " %g %g %g %g %g", last1,last2,last3,last4,last5
-    else {
-        start=n-4; if (start < 1) start=1
-        for (i=start; i<=n; i++) printf " %g", first[i]
-    }
+    if (n >= 5)
+        printf " %g %g %g %g %g", last1, last2, last3, last4, last5
+    else
+        for (i=1; i<=n; i++)
+            printf " %g", first[i]
     printf "\n"
 }' "$LOG"
 
 echo
 echo "=== core / posting errors ==="
 grep -E "core (gesture transition|feed|tick) failed|virtual-HID .* failed|IOHIDManagerOpen failed" "$LOG" || echo "(none)"
+
 echo
 echo "=== daemon startup identity ==="
 grep -E "privacy |matched HID|running for|raw HID pointer curve|system natural-scroll|scroll profile=" "$LOG" || true
+
 echo
 echo "=== virtual-HID scroll configuration ==="
 sudo grep -E "scroll-acceleration-support|effective scroll acceleration key|effective-scroll-acceleration|mouse-scroll-acceleration|legacy-scroll-acceleration|disabled scroll acceleration|could not disable scroll acceleration" \
   "/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log" | tail -20 || true
-'
+REMOTE_TEST
+
+ssh -t "$REMOTE" "sh '$REMOTE_SCRIPT'; status=\$?; rm -f '$REMOTE_SCRIPT'; exit \$status"
+trap - EXIT HUP INT TERM
