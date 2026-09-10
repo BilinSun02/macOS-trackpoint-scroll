@@ -15,6 +15,13 @@ jobs:
         run: make
       - name: CLI smoke test
         run: ./build/macOS-trackpoint-scroll --help
+      - name: Shell syntax smoke test
+        shell: bash
+        run: |
+          for script in scripts/*.sh; do
+            /bin/sh -n "$script"
+          done
+
       - name: Config profile smoke tests
         shell: bash
         run: |
