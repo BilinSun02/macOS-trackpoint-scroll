@@ -40,9 +40,9 @@ launchctl bootout "gui/$UID_NUM" "$PLIST" >/dev/null 2>&1 || true
 rm -rf "$APP_DIR" "$LEGACY_INSTALL_DIR"
 ditto "$SOURCE_APP" "$APP_DIR"
 
-# GitHub/browser downloads may carry com.apple.quarantine. This release is
-# intentionally not Developer-ID signed or notarized, so clear quarantine only
-# from the installed copy after the user explicitly runs this installer.
+# GitHub/browser downloads may carry com.apple.quarantine. Clear it only from
+# the installed copy after the user explicitly runs this installer. This keeps
+# non-notarized test/private packages usable without changing the downloaded archive.
 xattr -dr com.apple.quarantine "$APP_DIR" >/dev/null 2>&1 || true
 
 echo "Installing the root virtual-HID helper (sudo required)..."
