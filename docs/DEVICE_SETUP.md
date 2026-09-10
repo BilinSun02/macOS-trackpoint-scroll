@@ -70,7 +70,7 @@ A healthy startup includes lines similar to:
 trackpoint: privacy input-monitoring=granted cg-post-event=granted ax-trusted=yes
 trackpoint: active scroll rewrite tap created at HID tap
 trackpoint: VHID scroll carrier rewrite enabled (HID tap)
-trackpoint: running for vid=5859 pid=0001, scale=8, direction=traditional [exclusive seize + full virtual-HID pointer]
+trackpoint: running for vid=5859 pid=0001, scale=8, direction=traditional, profile=hyperbolic [exclusive seize + full virtual-HID pointer]
 trackpoint: matched HID device xy_3dg12 USB RF Adapter (vid=5859 pid=0001) [seized]
 trackpoint: raw HID pointer curve speed=1 acceleration=0 velocity=0.1 counts/ms
 ```
