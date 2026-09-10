@@ -177,11 +177,39 @@ Example:
 ```ini
 natural_scroll=false
 scroll_scale=8.0
+
+profile=hyperbolic
+clamp_negative_output=false
 suppress_middle_click=true
+
+first_step_distance=0.4
+first_step_axis_merge_ms=70.0
+first_step_max_reports=-1
+idle_reset_ms=333.3
+
+affine_k=0.4
+affine_b=0.0
+
+quadratic_a=0.16
+quadratic_h=0.0
+quadratic_k=0.025
+
+hyperbolic_a=0.75
+hyperbolic_u=1.6
+hyperbolic_k=-1.175
 
 pointer_speed=1.0
 pointer_acceleration=0.0
 pointer_acceleration_velocity=0.10
+```
+
+The common scroll-profile keys intentionally match `libinput-trackpoint-scroll`.
+Set `profile=affine`, `profile=quadratic`, or `profile=hyperbolic`; only the
+selected profile's parameter block is used. Profile/timing changes are read at
+daemon startup, so restart the LaunchAgent after editing the config:
+
+```sh
+launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
 ```
 
 `pointer_speed` is the linear base gain. `pointer_acceleration` adds velocity-dependent gain; zero disables acceleration. `pointer_acceleration_velocity` is the raw speed in counts/ms at which half of the configured extra gain is active.
@@ -205,10 +233,10 @@ During middle-button scrolling:
 1. raw HID X/Y reports are read from the adapter;
 2. reports are timestamped and fed to `trackpoint-scroll-core`;
 3. sparse reports are causally reconstructed on the 2 ms logical grid;
-4. the hyperbolic transfer profile is applied;
-5. Quartz continuous pixel scroll events are posted.
+4. the configured affine, quadratic, or hyperbolic transfer profile is applied;
+5. the active macOS output backend posts the resulting scroll motion.
 
-Current core/profile defaults mirror the Linux integration:
+Current core/profile defaults mirror the Linux integration, and these values are configurable on macOS:
 
 ```text
 profile=hyperbolic
