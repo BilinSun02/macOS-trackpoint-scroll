@@ -1,6 +1,7 @@
 #include <ApplicationServices/ApplicationServices.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDKeys.h>
+#include <IOKit/hid/IOHIDLib.h>
 #include <IOKit/hid/IOHIDManager.h>
 #include <IOKit/hid/IOHIDUsageTables.h>
 #include <mach/mach_time.h>
@@ -81,32 +82,53 @@ current_cursor_position(CGPoint *position)
     return true;
 }
 
+static const char *
+hid_access_name(IOHIDAccessType access)
+{
+    switch (access) {
+    case kIOHIDAccessTypeGranted:
+        return "granted";
+    case kIOHIDAccessTypeDenied:
+        return "denied";
+    case kIOHIDAccessTypeUnknown:
+        return "unknown";
+    default:
+        return "unexpected";
+    }
+}
+
 static void
 check_privacy_access(void)
 {
-    bool listen_before = CGPreflightListenEventAccess();
-    bool post_before = CGPreflightPostEventAccess();
-    bool listen_after = listen_before;
-    bool post_after = post_before;
+    IOHIDAccessType listen = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
+    IOHIDAccessType post = IOHIDCheckAccess(kIOHIDRequestTypePostEvent);
 
-    if (!listen_before)
-        listen_after = CGRequestListenEventAccess();
-    if (!post_before)
-        post_after = CGRequestPostEventAccess();
+    /*
+     * IOHID protected-device access is itself gated through these IOKit TCC
+     * request types. Request through the same subsystem that will open the
+     * TrackPoint, rather than relying on CoreGraphics to register the app.
+     */
+    if (listen == kIOHIDAccessTypeUnknown) {
+        (void)IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
+        listen = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
+    }
+    if (post == kIOHIDAccessTypeUnknown) {
+        (void)IOHIDRequestAccess(kIOHIDRequestTypePostEvent);
+        post = IOHIDCheckAccess(kIOHIDRequestTypePostEvent);
+    }
 
     fprintf(stderr,
             "trackpoint: privacy input-monitoring=%s accessibility=%s\n",
-            listen_after ? "granted" : "not-granted",
-            post_after ? "granted" : "not-granted");
+            hid_access_name(listen), hid_access_name(post));
 
-    if (!listen_after) {
+    if (listen != kIOHIDAccessTypeGranted) {
         fprintf(stderr,
                 "trackpoint: Input Monitoring is required to seize/read the "
                 "TrackPoint; enable this app in System Settings > Privacy & "
                 "Security > Input Monitoring, then restart the agent.\n");
     }
 
-    if (!post_after) {
+    if (post != kIOHIDAccessTypeGranted) {
         fprintf(stderr,
                 "trackpoint: Accessibility is required to post replacement "
                 "pointer/scroll events; enable this app in System Settings > "
@@ -698,7 +720,9 @@ setup_hid(struct app *app)
         fprintf(stderr, "trackpoint: IOHIDManagerOpen failed: 0x%08x%s\n",
                 status,
                 app->seize ? " [exclusive HID open]" : "");
-        if (app->seize && !CGPreflightListenEventAccess()) {
+        if (app->seize &&
+            IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) !=
+                kIOHIDAccessTypeGranted) {
             fprintf(stderr,
                     "trackpoint: diagnosis: Input Monitoring is not granted; "
                     "exclusive HID open cannot proceed.\n");
