@@ -24,6 +24,7 @@
 #define DEFAULT_VENDOR_ID  0x5859
 #define DEFAULT_PRODUCT_ID 0x0001
 #define MIDDLE_BUTTON_USAGE 3
+#define TPSC_VHID_SCROLL_PIXELS_PER_STEP 8.0
 
 struct app {
     IOHIDManagerRef hid_manager;
@@ -361,6 +362,8 @@ take_point_delta(double value, double *remainder)
     return (int32_t)integral;
 }
 
+static uint32_t vhid_button_mask(const struct app *app);
+
 static void
 post_scroll(struct app *app, double vertical, double horizontal)
 {
@@ -370,6 +373,31 @@ post_scroll(struct app *app, double vertical, double horizontal)
 
     if (vertical == 0.0 && horizontal == 0.0)
         return;
+
+    if (app->vhid_pointer) {
+        /*
+         * The scroll engine emits smooth pixel-like output. Karabiner's virtual
+         * pointing device exposes signed 8-bit wheel steps instead. Preserve
+         * low-speed motion by accumulating fractional wheel units across ticks
+         * rather than rounding each small output independently.
+         */
+        point_vertical = take_point_delta(
+            vertical / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
+            &app->point_remainder_y);
+        point_horizontal = take_point_delta(
+            horizontal / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
+            &app->point_remainder_x);
+
+        if (point_vertical == 0 && point_horizontal == 0)
+            return;
+
+        if (!tpsc_edge_pressure_post_report(
+                0, 0, point_vertical, point_horizontal,
+                vhid_button_mask(app)))
+            fprintf(stderr,
+                    "trackpoint: virtual-HID scroll forwarding failed\n");
+        return;
+    }
 
     point_vertical = take_point_delta(vertical, &app->point_remainder_y);
     point_horizontal = take_point_delta(horizontal, &app->point_remainder_x);
