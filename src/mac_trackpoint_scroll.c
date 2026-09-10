@@ -64,6 +64,15 @@ struct app {
     uint64_t pointer_report_time_us;
     int64_t pointer_report_dx;
     int64_t pointer_report_dy;
+
+    uint64_t pointer_diag_window_start_us;
+    uint64_t pointer_diag_raw_x_events;
+    uint64_t pointer_diag_raw_y_events;
+    int64_t pointer_diag_raw_x_sum;
+    int64_t pointer_diag_raw_y_sum;
+    uint64_t pointer_diag_post_events;
+    int64_t pointer_diag_post_x_sum;
+    int64_t pointer_diag_post_y_sum;
 };
 
 static mach_timebase_info_data_t g_timebase;
@@ -415,7 +424,7 @@ post_button(CGEventType type, CGMouseButton button)
 }
 
 static void
-post_relative_motion(int64_t dx, int64_t dy, const struct app *app)
+post_relative_motion(int64_t dx, int64_t dy, struct app *app)
 {
     CGEventRef current = CGEventCreate(NULL);
     CGEventRef event;
@@ -444,6 +453,13 @@ post_relative_motion(int64_t dx, int64_t dy, const struct app *app)
         return;
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaX, dx);
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaY, dy);
+
+    if (app->verbose) {
+        app->pointer_diag_post_events++;
+        app->pointer_diag_post_x_sum += dx;
+        app->pointer_diag_post_y_sum += dy;
+    }
+
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 }
@@ -472,9 +488,56 @@ flush_pointer_report(struct app *app)
 }
 
 static void
+pointer_diag_observe_raw(struct app *app, uint32_t usage, int64_t value,
+                         uint64_t time_us)
+{
+    if (!app->verbose || value == 0)
+        return;
+
+    if (app->pointer_diag_window_start_us == 0)
+        app->pointer_diag_window_start_us = time_us;
+
+    if (usage == kHIDUsage_GD_X) {
+        app->pointer_diag_raw_x_events++;
+        app->pointer_diag_raw_x_sum += value;
+    } else if (usage == kHIDUsage_GD_Y) {
+        app->pointer_diag_raw_y_events++;
+        app->pointer_diag_raw_y_sum += value;
+    }
+}
+
+static void
+pointer_diag_maybe_report(struct app *app, uint64_t time_us)
+{
+    if (!app->verbose || app->pointer_diag_window_start_us == 0 ||
+        time_us < app->pointer_diag_window_start_us ||
+        time_us - app->pointer_diag_window_start_us < 1000000ULL)
+        return;
+
+    fprintf(stderr,
+            "trackpoint: pointer-diag raw[x events=%" PRIu64 " sum=%" PRId64
+            ", y events=%" PRIu64 " sum=%" PRId64
+            "] post[events=%" PRIu64 " x=%" PRId64 " y=%" PRId64 "]\n",
+            app->pointer_diag_raw_x_events, app->pointer_diag_raw_x_sum,
+            app->pointer_diag_raw_y_events, app->pointer_diag_raw_y_sum,
+            app->pointer_diag_post_events, app->pointer_diag_post_x_sum,
+            app->pointer_diag_post_y_sum);
+
+    app->pointer_diag_window_start_us = time_us;
+    app->pointer_diag_raw_x_events = 0;
+    app->pointer_diag_raw_y_events = 0;
+    app->pointer_diag_raw_x_sum = 0;
+    app->pointer_diag_raw_y_sum = 0;
+    app->pointer_diag_post_events = 0;
+    app->pointer_diag_post_x_sum = 0;
+    app->pointer_diag_post_y_sum = 0;
+}
+
+static void
 queue_pointer_motion(struct app *app, uint32_t usage, int64_t value,
                      uint64_t time_us)
 {
+    pointer_diag_observe_raw(app, usage, value, time_us);
     if (app->have_pointer_report &&
         time_us != app->pointer_report_time_us)
         flush_pointer_report(app);
@@ -640,6 +703,7 @@ tick_callback(CFRunLoopTimerRef timer, void *context)
      * followed by another HID report.
      */
     flush_pointer_report(app);
+    pointer_diag_maybe_report(app, now_us());
 
     if (!app->middle_down || !tpsc_engine_needs_ticks(app->engine))
         return;
