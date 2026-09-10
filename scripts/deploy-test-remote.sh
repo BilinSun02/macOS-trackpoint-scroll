@@ -86,9 +86,9 @@ echo '=== startup diagnostics ==='
 grep -E 'privacy |IOHIDManagerOpen|diagnosis:|matched HID|running for|raw HID pointer curve|virtual-HID pointer|system natural-scroll' \"\$LOG\" || true
 "
 
-echo "==> helper scroll diagnostics"
+echo "==> virtual-HID scroll diagnostics"
 ssh -t "$REMOTE" "
-sudo grep -E 'direct floating-point HID scroll ready|direct HID scroll SPI unavailable|cannot create HID event-system client|direct HID scroll forwarding failed' \
+sudo grep -E 'effective scroll acceleration key|effective-scroll-acceleration|mouse-scroll-acceleration|legacy-scroll-acceleration|requested linear scroll|could not disable scroll acceleration' \
   '/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log' | tail -20 || true
 "
 
