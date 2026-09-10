@@ -24,19 +24,24 @@
 typedef struct __IOHIDEvent *tpsc_IOHIDEventRef;
 typedef double tpsc_IOHIDFloat;
 
-typedef IOHIDEventSystemClientRef (*tpsc_hid_client_create_fn)(CFAllocatorRef);
+typedef IOHIDEventSystemClientRef (*tpsc_hid_client_create_with_type_fn)(
+    CFAllocatorRef, uint32_t, void *);
 typedef tpsc_IOHIDEventRef (*tpsc_hid_scroll_create_fn)(
     CFAllocatorRef, uint64_t, tpsc_IOHIDFloat, tpsc_IOHIDFloat,
     tpsc_IOHIDFloat, uint32_t);
 typedef void (*tpsc_hid_event_set_flags_fn)(tpsc_IOHIDEventRef, uint32_t);
+typedef void (*tpsc_hid_event_set_sender_id_fn)(tpsc_IOHIDEventRef, uint64_t);
 typedef void (*tpsc_hid_dispatch_fn)(IOHIDEventSystemClientRef,
                                      tpsc_IOHIDEventRef);
 
 #define TPSC_IOHID_ACCELERATED 0x00010000u
+#define TPSC_IOHID_CLIENT_TYPE_ADMIN 0u
+#define TPSC_SCROLL_SENDER_ID UINT64_C(0xdefacedbeeffece5)
 
 static IOHIDEventSystemClientRef g_scroll_event_client;
 static tpsc_hid_scroll_create_fn g_hid_scroll_create;
 static tpsc_hid_event_set_flags_fn g_hid_event_set_flags;
+static tpsc_hid_event_set_sender_id_fn g_hid_event_set_sender_id;
 static tpsc_hid_dispatch_fn g_hid_dispatch;
 static bool g_scroll_spi_initialized;
 static bool g_scroll_spi_available;
@@ -44,30 +49,34 @@ static bool g_scroll_spi_available;
 static bool
 initialize_direct_scroll_spi(void)
 {
-    tpsc_hid_client_create_fn create_client;
+    tpsc_hid_client_create_with_type_fn create_client_with_type;
 
     if (g_scroll_spi_initialized)
         return g_scroll_spi_available;
 
     g_scroll_spi_initialized = true;
 
-    create_client = (tpsc_hid_client_create_fn)
-        dlsym(RTLD_DEFAULT, "IOHIDEventSystemClientCreate");
+    create_client_with_type = (tpsc_hid_client_create_with_type_fn)
+        dlsym(RTLD_DEFAULT, "IOHIDEventSystemClientCreateWithType");
     g_hid_scroll_create = (tpsc_hid_scroll_create_fn)
         dlsym(RTLD_DEFAULT, "IOHIDEventCreateScrollEvent");
     g_hid_event_set_flags = (tpsc_hid_event_set_flags_fn)
         dlsym(RTLD_DEFAULT, "IOHIDEventSetEventFlags");
+    g_hid_event_set_sender_id = (tpsc_hid_event_set_sender_id_fn)
+        dlsym(RTLD_DEFAULT, "IOHIDEventSetSenderID");
     g_hid_dispatch = (tpsc_hid_dispatch_fn)
         dlsym(RTLD_DEFAULT, "IOHIDEventSystemClientDispatchEvent");
 
-    if (!create_client || !g_hid_scroll_create ||
-        !g_hid_event_set_flags || !g_hid_dispatch) {
+    if (!create_client_with_type || !g_hid_scroll_create ||
+        !g_hid_event_set_flags || !g_hid_event_set_sender_id ||
+        !g_hid_dispatch) {
         fprintf(stderr,
                 "edge-pressure-helper: direct HID scroll SPI unavailable\n");
         return false;
     }
 
-    g_scroll_event_client = create_client(kCFAllocatorDefault);
+    g_scroll_event_client = create_client_with_type(
+        kCFAllocatorDefault, TPSC_IOHID_CLIENT_TYPE_ADMIN, NULL);
     if (!g_scroll_event_client) {
         fprintf(stderr,
                 "edge-pressure-helper: cannot create HID event-system client "
@@ -77,7 +86,8 @@ initialize_direct_scroll_spi(void)
 
     g_scroll_spi_available = true;
     fprintf(stderr,
-            "edge-pressure-helper: direct floating-point HID scroll ready\n");
+            "edge-pressure-helper: direct floating-point HID scroll ready "
+            "(admin client)\n");
     return true;
 }
 
@@ -102,6 +112,7 @@ post_direct_scroll(double scroll_x, double scroll_y)
      * when kIOHIDAccelerated is absent. These values are already the final
      * linear output of trackpoint-scroll-core, so mark them as processed.
      */
+    g_hid_event_set_sender_id(event, TPSC_SCROLL_SENDER_ID);
     g_hid_event_set_flags(event, TPSC_IOHID_ACCELERATED);
     g_hid_dispatch(g_scroll_event_client, event);
     CFRelease(event);
