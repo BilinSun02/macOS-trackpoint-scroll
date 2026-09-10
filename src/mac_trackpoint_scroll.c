@@ -82,6 +82,39 @@ current_cursor_position(CGPoint *position)
 }
 
 static void
+check_privacy_access(void)
+{
+    bool listen_before = CGPreflightListenEventAccess();
+    bool post_before = CGPreflightPostEventAccess();
+    bool listen_after = listen_before;
+    bool post_after = post_before;
+
+    if (!listen_before)
+        listen_after = CGRequestListenEventAccess();
+    if (!post_before)
+        post_after = CGRequestPostEventAccess();
+
+    fprintf(stderr,
+            "trackpoint: privacy input-monitoring=%s accessibility=%s\n",
+            listen_after ? "granted" : "not-granted",
+            post_after ? "granted" : "not-granted");
+
+    if (!listen_after) {
+        fprintf(stderr,
+                "trackpoint: Input Monitoring is required to seize/read the "
+                "TrackPoint; enable this app in System Settings > Privacy & "
+                "Security > Input Monitoring, then restart the agent.\n");
+    }
+
+    if (!post_after) {
+        fprintf(stderr,
+                "trackpoint: Accessibility is required to post replacement "
+                "pointer/scroll events; enable this app in System Settings > "
+                "Privacy & Security > Accessibility, then restart the agent.\n");
+    }
+}
+
+static void
 usage(const char *argv0)
 {
     fprintf(stderr,
@@ -664,7 +697,16 @@ setup_hid(struct app *app)
     if (status != kIOReturnSuccess) {
         fprintf(stderr, "trackpoint: IOHIDManagerOpen failed: 0x%08x%s\n",
                 status,
-                app->seize ? " (try running with appropriate privileges)" : "");
+                app->seize ? " [exclusive HID open]" : "");
+        if (app->seize && !CGPreflightListenEventAccess()) {
+            fprintf(stderr,
+                    "trackpoint: diagnosis: Input Monitoring is not granted; "
+                    "exclusive HID open cannot proceed.\n");
+        } else if (app->seize) {
+            fprintf(stderr,
+                    "trackpoint: diagnosis: Input Monitoring reports granted, "
+                    "but exclusive HID open was still denied.\n");
+        }
         return -1;
     }
 
@@ -737,6 +779,8 @@ main(int argc, char **argv)
     const char *selected_config;
 
     (void)mach_timebase_info(&g_timebase);
+
+    check_privacy_access();
 
     macos_trackpoint_config_defaults(&config);
     selected_config = config_path_from_args(argc, argv,
