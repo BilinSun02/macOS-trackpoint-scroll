@@ -22,6 +22,10 @@ ssh "$REMOTE" "cat > '$REMOTE_SCRIPT' && chmod 700 '$REMOTE_SCRIPT'" <<'REMOTE_T
 set -eu
 
 LOG="$HOME/Library/Logs/macOS-trackpoint-scroll/stderr.log"
+STARTUP="/tmp/macos-trackpoint-scroll-startup-$.log"
+
+# Preserve startup diagnostics before the timed test truncates the live log.
+grep -E "privacy |matched HID|running for|raw HID pointer curve|system natural-scroll|scroll profile=|active .*scroll rewrite tap|VHID scroll carrier rewrite enabled|falling back to accelerated VHID wheel path" "$LOG" > "$STARTUP" || true
 
 # Authenticate before the interaction window begins.
 sudo -v
@@ -48,6 +52,8 @@ printf "scroll outputs: "
 grep -Ec "trackpoint: scroll x=" "$LOG" || true
 printf "VHID wheel carriers: "
 grep -Ec "trackpoint: vhid-wheel carrier " "$LOG" || true
+printf "VHID wheel fallback reports: "
+grep -Ec "trackpoint: vhid-wheel fallback " "$LOG" || true
 printf "rewritten wheel events: "
 grep -Ec "trackpoint: rewrite-wheel observed-point" "$LOG" || true
 
@@ -95,7 +101,8 @@ grep -E "core (gesture transition|feed|tick) failed|virtual-HID .* failed|IOHIDM
 
 echo
 echo "=== daemon startup identity ==="
-grep -E "privacy |matched HID|running for|raw HID pointer curve|system natural-scroll|scroll profile=" "$LOG" || true
+cat "$STARTUP" || true
+rm -f "$STARTUP"
 
 echo
 echo "=== virtual-HID scroll configuration ==="
