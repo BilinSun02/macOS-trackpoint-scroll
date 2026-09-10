@@ -65,25 +65,6 @@ struct app {
 };
 
 static mach_timebase_info_data_t g_timebase;
-static CGEventSourceRef g_event_source;
-
-static CGEventSourceRef
-pointer_event_source(void)
-{
-    if (g_event_source)
-        return g_event_source;
-
-    /*
-     * Apple documents HIDSystemState for daemons/user-space device drivers
-     * that interpret hardware state and generate Quartz events. Keep one
-     * persistent source so WindowServer sees one coherent synthetic device
-     * rather than a stream of source-less events.
-     */
-    g_event_source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
-    if (g_event_source)
-        CGEventSourceSetLocalEventsSuppressionInterval(g_event_source, 0.0);
-    return g_event_source;
-}
 
 static uint64_t
 mach_ticks_to_us(uint64_t ticks)
@@ -352,6 +333,9 @@ device_removed(void *context, IOReturn result, void *sender,
     (void)device;
 
     app->target_present = false;
+    if (app->vhid_pointer &&
+        (app->middle_down || app->left_down || app->right_down))
+        (void)tpsc_edge_pressure_post_state(0, 0, 0);
     app->middle_down = false;
     app->left_down = false;
     app->right_down = false;
@@ -390,8 +374,7 @@ post_scroll(struct app *app, double vertical, double horizontal)
     point_vertical = take_point_delta(vertical, &app->point_remainder_y);
     point_horizontal = take_point_delta(horizontal, &app->point_remainder_x);
 
-    event = CGEventCreateScrollWheelEvent(pointer_event_source(),
-                                          kCGScrollEventUnitPixel,
+    event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitPixel,
                                           2, point_vertical, point_horizontal);
     if (!event)
         return;
@@ -422,12 +405,25 @@ post_button(CGEventType type, CGMouseButton button)
     position = CGEventGetLocation(current);
     CFRelease(current);
 
-    event = CGEventCreateMouseEvent(pointer_event_source(),
-                                    type, position, button);
+    event = CGEventCreateMouseEvent(NULL, type, position, button);
     if (!event)
         return;
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
+}
+
+static uint32_t
+vhid_button_mask(const struct app *app)
+{
+    uint32_t buttons = 0;
+
+    if (app->left_down)
+        buttons |= 1u << 0;
+    if (app->right_down)
+        buttons |= 1u << 1;
+    if (!app->suppress_middle_click && app->middle_down)
+        buttons |= 1u << 2;
+    return buttons;
 }
 
 static void
@@ -440,7 +436,7 @@ post_relative_motion(int64_t dx, int64_t dy, struct app *app)
             app->pointer_diag_post_y_sum += dy;
         }
 
-        if (!tpsc_edge_pressure_post(dx, dy))
+        if (!tpsc_edge_pressure_post_state(dx, dy, vhid_button_mask(app)))
             fprintf(stderr,
                     "trackpoint: virtual-HID pointer forwarding failed\n");
         return;
@@ -562,9 +558,17 @@ handle_button(struct app *app, uint32_t usage, bool down, uint64_t time_us)
 {
     if (usage == MIDDLE_BUTTON_USAGE) {
         middle_transition(app, down, time_us);
-        if (app->seize && !app->suppress_middle_click)
-            post_button(down ? kCGEventOtherMouseDown : kCGEventOtherMouseUp,
-                        kCGMouseButtonCenter);
+        if (app->seize && !app->suppress_middle_click) {
+            if (app->vhid_pointer) {
+                if (!tpsc_edge_pressure_post_state(
+                        0, 0, vhid_button_mask(app)))
+                    fprintf(stderr,
+                            "trackpoint: virtual-HID button forwarding failed\n");
+            } else {
+                post_button(down ? kCGEventOtherMouseDown : kCGEventOtherMouseUp,
+                            kCGMouseButtonCenter);
+            }
+        }
         return;
     }
 
@@ -573,12 +577,26 @@ handle_button(struct app *app, uint32_t usage, bool down, uint64_t time_us)
 
     if (usage == 1) {
         app->left_down = down;
-        post_button(down ? kCGEventLeftMouseDown : kCGEventLeftMouseUp,
-                    kCGMouseButtonLeft);
+        if (app->vhid_pointer) {
+            if (!tpsc_edge_pressure_post_state(0, 0,
+                                                vhid_button_mask(app)))
+                fprintf(stderr,
+                        "trackpoint: virtual-HID button forwarding failed\n");
+        } else {
+            post_button(down ? kCGEventLeftMouseDown : kCGEventLeftMouseUp,
+                        kCGMouseButtonLeft);
+        }
     } else if (usage == 2) {
         app->right_down = down;
-        post_button(down ? kCGEventRightMouseDown : kCGEventRightMouseUp,
-                    kCGMouseButtonRight);
+        if (app->vhid_pointer) {
+            if (!tpsc_edge_pressure_post_state(0, 0,
+                                                vhid_button_mask(app)))
+                fprintf(stderr,
+                        "trackpoint: virtual-HID button forwarding failed\n");
+        } else {
+            post_button(down ? kCGEventRightMouseDown : kCGEventRightMouseUp,
+                        kCGMouseButtonRight);
+        }
     }
 }
 
@@ -888,12 +906,10 @@ cleanup(struct app *app)
     }
     if (app->event_tap)
         CFRelease(app->event_tap);
+    if (app->vhid_pointer)
+        (void)tpsc_edge_pressure_post_state(0, 0, 0);
     tpsc_pointer_rebound_set_enabled(false);
     tpsc_engine_destroy(app->engine);
-    if (g_event_source) {
-        CFRelease(g_event_source);
-        g_event_source = NULL;
-    }
 }
 
 int
