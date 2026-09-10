@@ -56,7 +56,6 @@ struct app {
 
     bool seize;
     bool edge_pressure_helper;
-    bool vhid_pointer;
     bool verbose;
     bool suppress_middle_click;
     bool system_natural_scroll;
@@ -220,7 +219,6 @@ usage(const char *argv0)
             "  --allow-middle-click    do not suppress Quartz middle clicks\n"
             "  --seize                 exclusively claim the HID device\n"
             "  --edge-pressure-helper  use privileged virtual-HID helper at display edges\n"
-            "  --vhid-pointer          route ordinary pointer motion through virtual HID\n"
             "  --verbose               print device/gesture diagnostics\n"
             "  --help                  show this text\n",
             argv0);
@@ -282,8 +280,6 @@ parse_args(struct app *app, int argc, char **argv)
             app->seize = true;
         } else if (strcmp(argv[i], "--edge-pressure-helper") == 0) {
             app->edge_pressure_helper = true;
-        } else if (strcmp(argv[i], "--vhid-pointer") == 0) {
-            app->vhid_pointer = true;
         } else if (strcmp(argv[i], "--allow-middle-click") == 0) {
             app->suppress_middle_click = false;
         } else if (strcmp(argv[i], "--invert-x") == 0) {
@@ -393,7 +389,7 @@ device_removed(void *context, IOReturn result, void *sender,
     (void)device;
 
     app->target_present = false;
-    if (app->vhid_pointer &&
+    if (app->edge_pressure_helper &&
         (app->middle_down || app->left_down || app->right_down))
         (void)tpsc_edge_pressure_post_state(0, 0, 0);
     app->middle_down = false;
@@ -483,7 +479,7 @@ post_scroll(struct app *app, double vertical, double horizontal)
     if (vertical == 0.0 && horizontal == 0.0)
         return;
 
-    if (app->vhid_pointer) {
+    if (app->edge_pressure_helper) {
         double system_sign = app->system_natural_scroll ? 1.0 : -1.0;
 
         {
@@ -575,7 +571,7 @@ vhid_button_mask(const struct app *app)
 static void
 post_relative_motion(int64_t dx, int64_t dy, struct app *app)
 {
-    if (app->vhid_pointer) {
+    if (app->edge_pressure_helper) {
 
         if (!tpsc_edge_pressure_post_state(dx, dy, vhid_button_mask(app)))
             fprintf(stderr,
@@ -649,7 +645,7 @@ handle_button(struct app *app, uint32_t usage, bool down, uint64_t time_us)
     if (usage == MIDDLE_BUTTON_USAGE) {
         middle_transition(app, down, time_us);
         if (app->seize && !app->suppress_middle_click) {
-            if (app->vhid_pointer) {
+            if (app->edge_pressure_helper) {
                 if (!tpsc_edge_pressure_post_state(
                         0, 0, vhid_button_mask(app)))
                     fprintf(stderr,
@@ -667,7 +663,7 @@ handle_button(struct app *app, uint32_t usage, bool down, uint64_t time_us)
 
     if (usage == 1) {
         app->left_down = down;
-        if (app->vhid_pointer) {
+        if (app->edge_pressure_helper) {
             if (!tpsc_edge_pressure_post_state(0, 0,
                                                 vhid_button_mask(app)))
                 fprintf(stderr,
@@ -678,7 +674,7 @@ handle_button(struct app *app, uint32_t usage, bool down, uint64_t time_us)
         }
     } else if (usage == 2) {
         app->right_down = down;
-        if (app->vhid_pointer) {
+        if (app->edge_pressure_helper) {
             if (!tpsc_edge_pressure_post_state(0, 0,
                                                 vhid_button_mask(app)))
                 fprintf(stderr,
@@ -829,7 +825,7 @@ setup_event_tap(struct app *app)
     CGEventTapOptions options = kCGEventTapOptionDefault;
 
     if (app->seize) {
-        if (!app->vhid_pointer)
+        if (!app->edge_pressure_helper)
             return 0;
 
         app->event_tap = create_active_scroll_tap(app, kCGHIDEventTap);
@@ -890,7 +886,7 @@ setup_event_tap(struct app *app)
     CFRunLoopAddSource(CFRunLoopGetMain(), app->event_tap_source,
                        kCFRunLoopCommonModes);
     CGEventTapEnable(app->event_tap, true);
-    if (app->seize && app->vhid_pointer) {
+    if (app->seize && app->edge_pressure_helper) {
         fprintf(stderr,
                 "trackpoint: VHID scroll carrier rewrite enabled (%s tap)\n",
                 app->scroll_rewrite_tap_location == kCGHIDEventTap
@@ -1051,7 +1047,7 @@ cleanup(struct app *app)
     }
     if (app->event_tap)
         CFRelease(app->event_tap);
-    if (app->vhid_pointer)
+    if (app->edge_pressure_helper)
         (void)tpsc_edge_pressure_post_state(0, 0, 0);
     tpsc_pointer_rebound_set_enabled(false);
     tpsc_engine_destroy(app->engine);
@@ -1094,14 +1090,9 @@ main(int argc, char **argv)
         return 2;
     }
 
-    if ((app.edge_pressure_helper || app.vhid_pointer) && !app.seize) {
+    if (app.edge_pressure_helper && !app.seize) {
         fprintf(stderr,
-                "trackpoint: --edge-pressure-helper/--vhid-pointer require --seize\n");
-        return 2;
-    }
-    if (app.vhid_pointer && !app.edge_pressure_helper) {
-        fprintf(stderr,
-                "trackpoint: --vhid-pointer requires --edge-pressure-helper\n");
+                "trackpoint: --edge-pressure-helper requires --seize\n");
         return 2;
     }
 
@@ -1154,11 +1145,9 @@ main(int argc, char **argv)
             "trackpoint: running for vid=%04x pid=%04x, scale=%g, direction=%s%s\n",
             app.vendor_id, app.product_id, app.scroll_scale,
             config.natural_scroll ? "natural" : "traditional",
-            app.seize ? (app.vhid_pointer
+            app.seize ? (app.edge_pressure_helper
                              ? " [exclusive seize + full virtual-HID pointer]"
-                             : (app.edge_pressure_helper
-                                    ? " [exclusive seize + virtual-HID edge pressure]"
-                                    : " [exclusive seize mode]"))
+                             : " [exclusive seize mode]")
                       : "");
     CFRunLoopRun();
     cleanup(&app);
