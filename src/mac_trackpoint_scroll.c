@@ -377,6 +377,7 @@ device_removed(void *context, IOReturn result, void *sender,
     app->have_scroll_anchor = false;
     app->point_remainder_x = 0.0;
     app->point_remainder_y = 0.0;
+    scroll_rewrite_clear(app);
     (void)tpsc_engine_end(app->engine, now_us());
     fprintf(stderr, "trackpoint: target HID device removed\n");
 }
@@ -690,6 +691,7 @@ middle_transition(struct app *app, bool down, uint64_t time_us)
     app->middle_down = down;
     app->point_remainder_x = 0.0;
     app->point_remainder_y = 0.0;
+    scroll_rewrite_clear(app);
     if (down) {
         app->have_scroll_anchor = current_cursor_position(&app->scroll_anchor);
         status = tpsc_engine_begin(app->engine, time_us);
@@ -875,6 +877,60 @@ event_tap_callback(CGEventTapProxy proxy, CGEventType type,
         return event;
     }
 
+    if (type == kCGEventScrollWheel && app->vhid_pointer &&
+        app->scroll_rewrite_enabled && app->middle_down) {
+        struct tpsc_scroll_rewrite target;
+        int64_t observed_point_h =
+            CGEventGetIntegerValueField(
+                event, kCGScrollWheelEventPointDeltaAxis2);
+        int64_t observed_point_v =
+            CGEventGetIntegerValueField(
+                event, kCGScrollWheelEventPointDeltaAxis1);
+
+        if (scroll_rewrite_pop(app, &target)) {
+            int32_t target_point_v =
+                take_point_delta(target.vertical, &app->point_remainder_y);
+            int32_t target_point_h =
+                take_point_delta(target.horizontal, &app->point_remainder_x);
+
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventDeltaAxis1, target_point_v);
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventDeltaAxis2, target_point_h);
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventPointDeltaAxis1, target_point_v);
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventPointDeltaAxis2, target_point_h);
+            CGEventSetDoubleValueField(
+                event, kCGScrollWheelEventFixedPtDeltaAxis1,
+                target.vertical);
+            CGEventSetDoubleValueField(
+                event, kCGScrollWheelEventFixedPtDeltaAxis2,
+                target.horizontal);
+            CGEventSetIntegerValueField(
+                event, kCGScrollWheelEventIsContinuous, 1);
+
+            if (app->verbose)
+                fprintf(stderr,
+                        "trackpoint: rewrite-wheel "
+                        "observed-point[h=%" PRId64 " v=%" PRId64 "] "
+                        "target-point[h=%" PRId32 " v=%" PRId32 "] "
+                        "target-fixed[h=%g v=%g] queue=%zu\n",
+                        observed_point_h, observed_point_v,
+                        target_point_h, target_point_v,
+                        target.horizontal, target.vertical,
+                        app->scroll_rewrite_count);
+            return event;
+        }
+
+        if (app->verbose)
+            fprintf(stderr,
+                    "trackpoint: rewrite-wheel queue empty; "
+                    "passing observed point[h=%" PRId64 " v=%" PRId64 "]\n",
+                    observed_point_h, observed_point_v);
+        return event;
+    }
+
     if (type == kCGEventScrollWheel && app->verbose) {
         fprintf(stderr,
                 "trackpoint: observed-wheel "
@@ -933,10 +989,10 @@ setup_event_tap(struct app *app)
     CGEventTapOptions options = kCGEventTapOptionDefault;
 
     if (app->seize) {
-        if (!app->verbose || !app->vhid_pointer)
+        if (!app->vhid_pointer)
             return 0;
         mask = CGEventMaskBit(kCGEventScrollWheel);
-        options = kCGEventTapOptionListenOnly;
+        options = kCGEventTapOptionDefault;
     } else {
         mask = CGEventMaskBit(kCGEventMouseMoved) |
                CGEventMaskBit(kCGEventLeftMouseDragged) |
@@ -982,6 +1038,11 @@ setup_event_tap(struct app *app)
     CFRunLoopAddSource(CFRunLoopGetMain(), app->event_tap_source,
                        kCFRunLoopCommonModes);
     CGEventTapEnable(app->event_tap, true);
+    if (app->seize && app->vhid_pointer) {
+        app->scroll_rewrite_enabled = true;
+        fprintf(stderr,
+                "trackpoint: VHID scroll carrier rewrite enabled\n");
+    }
     return 0;
 }
 
