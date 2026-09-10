@@ -123,9 +123,14 @@ System Settings -> Privacy & Security -> Accessibility
 Both are required for the seized architecture:
 
 - **Input Monitoring** permits the app to open/read the target HID device exclusively.
-- **Accessibility** permits `CGEventPost()` to inject the replacement pointer/button/scroll events.
+- **Accessibility / CoreGraphics PostEvent access** permits active event taps and replacement Quartz events used by the scroll-rewrite path.
 
-On the tested Sequoia system, programmatic permission requests did not reliably register or present a prompt, so v1 documents manual authorization instead of depending on prompt behavior.
+The daemon requests these gates explicitly at startup and logs them separately as
+`input-monitoring`, `cg-post-event`, and `ax-trusted`. A manually enabled
+Accessibility entry is not sufficient evidence that the running LaunchAgent is
+trusted; on the validated macOS 26 test system, the explicit runtime request
+produced the effective Accessibility prompt and the active rewrite tap became
+available only after that grant.
 
 After changing either permission:
 
@@ -234,7 +239,8 @@ During middle-button scrolling:
 2. reports are timestamped and fed to `trackpoint-scroll-core`;
 3. sparse reports are causally reconstructed on the 2 ms logical grid;
 4. the configured affine, quadratic, or hyperbolic transfer profile is applied;
-5. the active macOS output backend posts the resulting scroll motion.
+5. in full virtual-HID pointer mode, a unit Karabiner VHID wheel report acts as a hardware-class carrier;
+6. an active CoreGraphics event tap replaces macOS's accelerated wheel magnitude with the exact floating-point core output before applications receive it.
 
 Current core/profile defaults mirror the Linux integration, and these values are configurable on macOS:
 
@@ -251,6 +257,13 @@ hyperbolic_k=-1.175
 ```
 
 macOS scroll units are not identical to libinput scroll units, so `scroll_scale` remains exposed for calibration.
+
+The carrier/rewrite step is intentional. Conventional VHID wheel reports were
+measured one-for-one at the CoreGraphics tap, but identical unit reports were
+expanded by macOS into strongly rate-dependent point deltas (up to roughly
+95 pixels in the observed test). Rewriting those events with the core output
+removes that OS-level wheel acceleration while retaining a hardware-origin
+scroll event that macOS accepts.
 
 ## Manual diagnostic run
 
