@@ -6,5 +6,6 @@ int tpsc_vhid_initialize(void);
 void tpsc_vhid_shutdown(void);
 bool tpsc_vhid_is_enabled(void);
 bool tpsc_vhid_keepalive(void);
+bool tpsc_vhid_post_pointing(uint32_t buttons, int64_t dx, int64_t dy);
 bool tpsc_vhid_post_relative(int64_t dx, int64_t dy);
 #endif
