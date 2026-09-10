@@ -6,15 +6,12 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdio.h>
 
-#include "edge_pressure_client.h"
 #include "pointer_rebound.h"
 
 #define TPSC_MAX_ACTIVE_DISPLAYS 32u
 #define TPSC_DOUBLE_CLICK_FALLBACK_SECONDS 0.5
 #define TPSC_DOUBLE_CLICK_SLOP_POINTS 4.0
-#define TPSC_EDGE_PRESSURE_IDLE_SECONDS 0.300
 
 struct click_tracker {
     bool down;
@@ -30,38 +27,6 @@ struct click_tracker {
 static bool g_have_posted_pointer_position;
 static CGPoint g_posted_pointer_position;
 static CFAbsoluteTime g_posted_pointer_time;
-
-/*
- * When hardware-class edge pressure is active on an axis, suppress Quartz
- * pointer events until the TrackPoint genuinely reverses inward on that axis.
- * This prevents synthetic events (including split-axis jitter) from resetting
- * the Dock's edge state while the virtual HID helper supplies outward motion.
- */
-static int g_edge_pressure_x;
-static int g_edge_pressure_y;
-static CGPoint g_edge_pressure_position;
-static CFAbsoluteTime g_edge_pressure_last_outward_time;
-
-static bool
-edge_pressure_active(void)
-{
-    return g_edge_pressure_x != 0 || g_edge_pressure_y != 0;
-}
-
-static void
-clear_edge_pressure(const char *reason)
-{
-    if (!edge_pressure_active())
-        return;
-
-    g_edge_pressure_x = 0;
-    g_edge_pressure_y = 0;
-    g_edge_pressure_last_outward_time = 0.0;
-    g_have_posted_pointer_position = false;
-
-    if (reason)
-        fprintf(stderr, "trackpoint: edge pressure released (%s)\n", reason);
-}
 
 static struct click_tracker g_left_click;
 static struct click_tracker g_right_click;
@@ -323,144 +288,17 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
 
     annotate_button_event(type, event);
 
-    if (is_button_down(type) || is_button_up(type)) {
+    if (is_button_down(type) || is_button_up(type))
         tpsc_pointer_rebound_reset();
-        clear_edge_pressure("button transition");
-    }
 
     if (is_pointer_motion(type)) {
         CGPoint requested = CGEventGetLocation(event);
-        CGPoint position;
-        int64_t dx = CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
-        int64_t dy = CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
-        CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
-        bool had_edge_pressure;
-        bool inward_reversal = false;
-
-        if (edge_pressure_active() &&
-            g_edge_pressure_last_outward_time > 0.0 &&
-            now - g_edge_pressure_last_outward_time >
-                TPSC_EDGE_PRESSURE_IDLE_SECONDS)
-            clear_edge_pressure("idle");
-
-        had_edge_pressure = edge_pressure_active();
-
-        if (g_edge_pressure_x < 0)
-            inward_reversal = dx > 0;
-        else if (g_edge_pressure_x > 0)
-            inward_reversal = dx < 0;
-
-        if (g_edge_pressure_y < 0)
-            inward_reversal = inward_reversal || dy > 0;
-        else if (g_edge_pressure_y > 0)
-            inward_reversal = inward_reversal || dy < 0;
+        CGPoint position = project_to_active_displays(requested);
 
         /*
-         * A corner latch is one physical pressure episode. Once any latched
-         * axis genuinely reverses inward, release the entire episode rather
-         * than preserving a stale half-latch on the orthogonal axis.
-         */
-        if (inward_reversal)
-            clear_edge_pressure("inward reversal");
-
-        /*
-         * While an edge-pressure episode is active, keep Quartz silent so it
-         * cannot reset Dock activation, but forward the COMPLETE relative
-         * report through virtual HID. Forwarding only the outward component
-         * created an accidental dominant-axis lock: motion parallel to the
-         * edge was silently discarded until the latch cleared.
-         */
-        if (type == kCGEventMouseMoved &&
-            had_edge_pressure &&
-            edge_pressure_active()) {
-            bool has_outward = false;
-            bool forwarded;
-
-            if ((g_edge_pressure_x < 0 && dx < 0) ||
-                (g_edge_pressure_x > 0 && dx > 0) ||
-                (g_edge_pressure_y < 0 && dy < 0) ||
-                (g_edge_pressure_y > 0 && dy > 0))
-                has_outward = true;
-
-            forwarded = tpsc_edge_pressure_post(dx, dy);
-            if (forwarded && has_outward)
-                g_edge_pressure_last_outward_time = now;
-
-            /*
-             * Never discard pointer motion on behalf of a helper that failed
-             * to accept the corresponding virtual-HID report.
-             */
-            if (!forwarded) {
-                clear_edge_pressure("helper unavailable");
-            } else {
-                /*
-                 * The virtual HID report, not this Quartz event, moved the
-                 * cursor. Do not cache the old clamped Quartz position; let
-                 * the next event query WindowServer's realized position.
-                 */
-                g_have_posted_pointer_position = false;
-                tpsc_pointer_rebound_reset();
-                return;
-            }
-        }
-
-        position = project_to_active_displays(requested);
-
-        /*
-         * Detect the first motion that would cross a display boundary. If the
-         * privileged helper is available, send only the outward component as a
-         * real virtual-HID relative report and suppress this Quartz event.
-         * The helper-driven report physically reaches/presses the edge, while
-         * our cache remains clamped so no hidden overshoot accumulates.
-         */
-        {
-            int edge_x = 0;
-            int edge_y = 0;
-            int64_t pressure_x = 0;
-            int64_t pressure_y = 0;
-
-            if (requested.x < position.x) {
-                edge_x = -1;
-                pressure_x = dx;
-            } else if (requested.x > position.x) {
-                edge_x = 1;
-                pressure_x = dx;
-            }
-
-            if (requested.y < position.y) {
-                edge_y = -1;
-                pressure_y = dy;
-            } else if (requested.y > position.y) {
-                edge_y = 1;
-                pressure_y = dy;
-            }
-
-            if (type == kCGEventMouseMoved &&
-                (edge_x != 0 || edge_y != 0) &&
-                tpsc_edge_pressure_post(pressure_x, pressure_y)) {
-                g_edge_pressure_x = edge_x;
-                g_edge_pressure_y = edge_y;
-                g_edge_pressure_position = position;
-                g_edge_pressure_last_outward_time = now;
-                fprintf(stderr,
-                        "trackpoint: edge pressure latched x=%d y=%d\n",
-                        edge_x, edge_y);
-
-                CGEventSetLocation(event, position);
-                annotate_drag_event(type, event, position);
-                tpsc_pointer_rebound_observe(type, event);
-
-                g_posted_pointer_position = position;
-                g_posted_pointer_time = CFAbsoluteTimeGetCurrent();
-                g_have_posted_pointer_position = true;
-                return;
-            }
-        }
-
-        /*
-         * Normal path: Quartz carries pointer motion everywhere away from an
-         * actively pressed display edge. Project and cache the same realizable
-         * position to preserve split-axis composition without hidden overshoot.
+         * Compatibility path for seized operation without the virtual-HID
+         * helper. Keep absolute Quartz positions realizable and cache the last
+         * post so split X/Y HID callbacks compose correctly.
          */
         CGEventSetLocation(event, position);
         annotate_drag_event(type, event, position);
