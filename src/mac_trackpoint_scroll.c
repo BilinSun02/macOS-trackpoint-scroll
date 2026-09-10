@@ -149,40 +149,70 @@ static void
 check_privacy_access(void)
 {
     IOHIDAccessType listen = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
-    IOHIDAccessType post = IOHIDCheckAccess(kIOHIDRequestTypePostEvent);
+    bool cg_post;
+    bool ax_trusted;
 
     /*
-     * IOHID protected-device access is itself gated through these IOKit TCC
-     * request types. Request through the same subsystem that will open the
-     * TrackPoint, rather than relying on CoreGraphics to register the app.
+     * Protected HID input and Quartz event posting are separate TCC gates.
+     * Do not label IOHIDRequestTypePostEvent as "Accessibility": on current
+     * macOS, CGEventTap/PostEvent authorization has its own CoreGraphics
+     * request API and can diverge from AX trust.
      */
     if (listen == kIOHIDAccessTypeUnknown) {
         (void)IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
         listen = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
     }
-    if (post == kIOHIDAccessTypeUnknown) {
-        (void)IOHIDRequestAccess(kIOHIDRequestTypePostEvent);
-        post = IOHIDCheckAccess(kIOHIDRequestTypePostEvent);
+
+    cg_post = CGPreflightPostEventAccess();
+    if (!cg_post)
+        cg_post = CGRequestPostEventAccess();
+
+    ax_trusted = AXIsProcessTrusted();
+    if (!ax_trusted) {
+        const void *keys[] = { kAXTrustedCheckOptionPrompt };
+        const void *values[] = { kCFBooleanTrue };
+        CFDictionaryRef options = CFDictionaryCreate(
+            kCFAllocatorDefault,
+            keys, values, 1,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks);
+
+        if (options) {
+            /*
+             * This identifies/registers the actual running client with the
+             * Accessibility subsystem and asks macOS to prompt if needed.
+             * Prompting is asynchronous, so relaunch is still required after
+             * the user grants access.
+             */
+            ax_trusted = AXIsProcessTrustedWithOptions(options);
+            CFRelease(options);
+        }
     }
 
     fprintf(stderr,
-            "trackpoint: privacy input-monitoring=%s accessibility=%s "
-            "ax-trusted=%s\n",
-            hid_access_name(listen), hid_access_name(post),
-            AXIsProcessTrusted() ? "yes" : "no");
+            "trackpoint: privacy input-monitoring=%s "
+            "cg-post-event=%s ax-trusted=%s\n",
+            hid_access_name(listen),
+            cg_post ? "granted" : "denied",
+            ax_trusted ? "yes" : "no");
 
     if (listen != kIOHIDAccessTypeGranted) {
         fprintf(stderr,
                 "trackpoint: Input Monitoring is required to seize/read the "
-                "TrackPoint; enable this app in System Settings > Privacy & "
-                "Security > Input Monitoring, then restart the agent.\n");
+                "TrackPoint; grant it to this app and restart the agent.\n");
     }
 
-    if (post != kIOHIDAccessTypeGranted) {
+    if (!cg_post) {
         fprintf(stderr,
-                "trackpoint: Accessibility is required to post replacement "
-                "pointer/scroll events; enable this app in System Settings > "
-                "Privacy & Security > Accessibility, then restart the agent.\n");
+                "trackpoint: CoreGraphics PostEvent access is required for "
+                "the active scroll rewrite tap; macOS has not granted it.\n");
+    }
+
+    if (!ax_trusted) {
+        fprintf(stderr,
+                "trackpoint: Accessibility trust is not currently active for "
+                "this running process; macOS was asked to register/prompt the "
+                "actual client. Restart after granting it.\n");
     }
 }
 
