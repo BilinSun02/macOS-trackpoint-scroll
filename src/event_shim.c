@@ -15,7 +15,6 @@
 #define TPSC_DOUBLE_CLICK_FALLBACK_SECONDS 0.5
 #define TPSC_DOUBLE_CLICK_SLOP_POINTS 4.0
 #define TPSC_EDGE_PRESSURE_IDLE_SECONDS 0.300
-#define TPSC_EDGE_PRESSURE_POSITION_SLOP_POINTS 1.0
 
 struct click_tracker {
     bool down;
@@ -62,35 +61,6 @@ clear_edge_pressure(const char *reason)
 
     if (reason)
         fprintf(stderr, "trackpoint: edge pressure released (%s)\n", reason);
-}
-
-static bool
-actual_cursor_position(CGPoint *position)
-{
-    CGEventRef event = CGEventCreate(NULL);
-
-    if (!event)
-        return false;
-
-    *position = CGEventGetLocation(event);
-    CFRelease(event);
-    return true;
-}
-
-static bool
-edge_pressure_cursor_still_here(void)
-{
-    CGPoint current;
-    double dx;
-    double dy;
-    double slop = TPSC_EDGE_PRESSURE_POSITION_SLOP_POINTS;
-
-    if (!actual_cursor_position(&current))
-        return true;
-
-    dx = (double)(current.x - g_edge_pressure_position.x);
-    dy = (double)(current.y - g_edge_pressure_position.y);
-    return dx * dx + dy * dy <= slop * slop;
 }
 
 static struct click_tracker g_left_click;
@@ -367,15 +337,11 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
         bool had_edge_pressure;
         bool inward_reversal = false;
 
-        if (edge_pressure_active()) {
-            if (g_edge_pressure_last_outward_time > 0.0 &&
-                now - g_edge_pressure_last_outward_time >
-                    TPSC_EDGE_PRESSURE_IDLE_SECONDS) {
-                clear_edge_pressure("idle");
-            } else if (!edge_pressure_cursor_still_here()) {
-                clear_edge_pressure("cursor moved");
-            }
-        }
+        if (edge_pressure_active() &&
+            g_edge_pressure_last_outward_time > 0.0 &&
+            now - g_edge_pressure_last_outward_time >
+                TPSC_EDGE_PRESSURE_IDLE_SECONDS)
+            clear_edge_pressure("idle");
 
         had_edge_pressure = edge_pressure_active();
 
@@ -398,45 +364,42 @@ tpsc_event_post(CGEventTapLocation tap, CGEventRef event)
             clear_edge_pressure("inward reversal");
 
         /*
-         * While still pressing an edge, only the latched outward components
-         * are forwarded through the virtual HID helper. All Quartz pointer
-         * events, including orthogonal split-axis callbacks, stay silent.
+         * While an edge-pressure episode is active, keep Quartz silent so it
+         * cannot reset Dock activation, but forward the COMPLETE relative
+         * report through virtual HID. Forwarding only the outward component
+         * created an accidental dominant-axis lock: motion parallel to the
+         * edge was silently discarded until the latch cleared.
          */
         if (type == kCGEventMouseMoved &&
             had_edge_pressure &&
             edge_pressure_active()) {
-            int64_t pressure_x = 0;
-            int64_t pressure_y = 0;
-            bool forwarded = true;
+            bool has_outward = false;
+            bool forwarded;
 
             if ((g_edge_pressure_x < 0 && dx < 0) ||
-                (g_edge_pressure_x > 0 && dx > 0))
-                pressure_x = dx;
-            if ((g_edge_pressure_y < 0 && dy < 0) ||
+                (g_edge_pressure_x > 0 && dx > 0) ||
+                (g_edge_pressure_y < 0 && dy < 0) ||
                 (g_edge_pressure_y > 0 && dy > 0))
-                pressure_y = dy;
+                has_outward = true;
 
-            if (pressure_x != 0 || pressure_y != 0) {
-                forwarded = tpsc_edge_pressure_post(pressure_x, pressure_y);
-                if (forwarded)
-                    g_edge_pressure_last_outward_time = now;
-            }
+            forwarded = tpsc_edge_pressure_post(dx, dy);
+            if (forwarded && has_outward)
+                g_edge_pressure_last_outward_time = now;
 
             /*
              * Never discard pointer motion on behalf of a helper that failed
-             * to accept the corresponding virtual-HID pressure report.
+             * to accept the corresponding virtual-HID report.
              */
             if (!forwarded) {
                 clear_edge_pressure("helper unavailable");
             } else {
-                position = g_edge_pressure_position;
-                CGEventSetLocation(event, position);
-                annotate_drag_event(type, event, position);
-                tpsc_pointer_rebound_observe(type, event);
-
-                g_posted_pointer_position = position;
-                g_posted_pointer_time = now;
-                g_have_posted_pointer_position = true;
+                /*
+                 * The virtual HID report, not this Quartz event, moved the
+                 * cursor. Do not cache the old clamped Quartz position; let
+                 * the next event query WindowServer's realized position.
+                 */
+                g_have_posted_pointer_position = false;
+                tpsc_pointer_rebound_reset();
                 return;
             }
         }
