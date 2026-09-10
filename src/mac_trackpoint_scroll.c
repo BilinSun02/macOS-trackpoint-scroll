@@ -166,8 +166,10 @@ check_privacy_access(void)
     }
 
     fprintf(stderr,
-            "trackpoint: privacy input-monitoring=%s accessibility=%s\n",
-            hid_access_name(listen), hid_access_name(post));
+            "trackpoint: privacy input-monitoring=%s accessibility=%s "
+            "ax-trusted=%s\n",
+            hid_access_name(listen), hid_access_name(post),
+            AXIsProcessTrusted() ? "yes" : "no");
 
     if (listen != kIOHIDAccessTypeGranted) {
         fprintf(stderr,
