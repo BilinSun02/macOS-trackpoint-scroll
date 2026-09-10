@@ -66,7 +66,7 @@ cat >"$PLIST" <<EOF
         <string>$INSTALL_BIN</string>
         <string>--seize</string>
         <string>--edge-pressure-helper</string>
-        <string>--verbose</string>
+        <string>--vhid-pointer</string>
         <string>--config</string>
         <string>$CONFIG_PATH</string>
     </array>
