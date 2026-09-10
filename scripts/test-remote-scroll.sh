@@ -12,6 +12,10 @@ ssh -t "$REMOTE" '
 set -eu
 LOG="$HOME/Library/Logs/macOS-trackpoint-scroll/stderr.log"
 
+# Authenticate up front so the password prompt does not appear after the timed
+# interaction has already finished.
+sudo -v
+
 echo
 echo "=== middle-scroll test ==="
 echo "For the next 8 seconds, hold the TrackPoint middle button and move the"
