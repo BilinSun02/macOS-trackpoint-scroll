@@ -59,7 +59,7 @@ Maintainers can create the archive with a stable signing identity:
 ```sh
 IDENTITY="$(
   security find-identity -v -p codesigning |
-  awk '/^[[:space:]]*[0-9]+\\)/ { print $2; exit }'
+  awk '/^[[:space:]]*[0-9]+\)/ { print $2; exit }'
 )"
 
 make clean
