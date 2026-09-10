@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "edge_pressure_client.h"
 #include "pointer_rebound.h"
