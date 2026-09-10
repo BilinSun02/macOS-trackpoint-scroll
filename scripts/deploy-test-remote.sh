@@ -120,7 +120,7 @@ fi
 
 echo "==> virtual-HID scroll diagnostics"
 ssh -t "$REMOTE" "
-sudo grep -E 'scroll-acceleration-support|effective scroll acceleration key|effective-scroll-acceleration|mouse-scroll-acceleration|legacy-scroll-acceleration|disabled scroll acceleration|could not disable scroll acceleration' \
+sudo grep -E 'scroll-acceleration-support|effective scroll acceleration key|effective-scroll-acceleration|mouse-scroll-acceleration|legacy-scroll-acceleration|requested scroll acceleration disable|disabled scroll acceleration|could not disable scroll acceleration' \
   '/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log' | tail -20 || true
 "
 
