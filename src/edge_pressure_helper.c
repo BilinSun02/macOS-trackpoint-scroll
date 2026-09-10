@@ -116,6 +116,12 @@ serve_client(int fd, uid_t allowed_uid)
         }
     }
 
+    /*
+     * Never let a user-daemon disconnect leave virtual mouse buttons held.
+     * A zero-motion all-buttons-up report is valid on Karabiner's pointing
+     * device and resets the virtual device's button state.
+     */
+    (void)tpsc_vhid_post_pointing(0, 0, 0);
     return 0;
 }
 
