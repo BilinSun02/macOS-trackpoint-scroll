@@ -97,17 +97,18 @@ sleep 3
 
 echo
 echo "=== startup diagnostics ==="
-grep -E "privacy |IOHIDManagerOpen|diagnosis:|matched HID|running for|raw HID pointer curve|virtual-HID pointer|system natural-scroll|scroll profile=|active .*scroll rewrite tap|VHID scroll carrier rewrite enabled|falling back to accelerated VHID wheel path" "$LOG" || true
+grep -E "privacy |CoreGraphics PostEvent|Accessibility trust|IOHIDManagerOpen|diagnosis:|matched HID|running for|raw HID pointer curve|virtual-HID pointer|system natural-scroll|scroll profile=|active .*scroll rewrite tap|VHID scroll carrier rewrite enabled|falling back to accelerated VHID wheel path" "$LOG" || true
 
-if grep -q "privacy .*accessibility=denied" "$LOG"; then
+if grep -q "privacy .*cg-post-event=denied" "$LOG"; then
     echo
-    echo "ERROR: Accessibility is denied for the installed app."
-    echo "The active scroll-rewrite tap cannot run, so this build is still"
-    echo "falling back to the known-bad accelerated VHID wheel path."
+    echo "NOTE: CoreGraphics PostEvent access is denied."
+    echo "The daemon has requested that permission explicitly."
+fi
+
+if grep -q "privacy .*ax-trusted=no" "$LOG"; then
     echo
-    echo "Grant Accessibility to:"
-    echo "  $HOME/Applications/macOS-trackpoint-scroll.app"
-    exit 4
+    echo "NOTE: AX trust is also inactive, but the rewrite experiment is"
+    echo "gated by whether an active CGEventTap can actually be created."
 fi
 
 if ! grep -q "VHID scroll carrier rewrite enabled" "$LOG"; then
