@@ -201,8 +201,6 @@ static int8_t take_chunk(int64_t *v) {
     return (int8_t)c;
 }
 static bool post_pointing_once(uint32_t buttons, int64_t dx, int64_t dy) {
-    bool first=true;
-
     do {
         struct pointing_report report={0};
         report.buttons=buttons;
@@ -210,10 +208,8 @@ static bool post_pointing_once(uint32_t buttons, int64_t dx, int64_t dy) {
         report.y=(uint8_t)take_chunk(&dy);
         if (!send_request(REQ_POINTING_REPORT,&report,sizeof(report),false))
             return false;
-        first=false;
     } while (dx || dy);
 
-    (void)first;
     return true;
 }
 
