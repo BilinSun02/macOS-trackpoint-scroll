@@ -30,6 +30,16 @@ grep -E "privacy |matched HID|running for|raw HID pointer curve|system natural-s
 # Authenticate before the interaction window begins.
 sudo -v
 
+if ! grep -q "VHID scroll carrier rewrite enabled" "$STARTUP"; then
+    echo
+    echo "=== rewrite backend not active ==="
+    cat "$STARTUP" || true
+    rm -f "$STARTUP"
+    echo
+    echo "Refusing to run the gesture test against the old accelerated fallback."
+    exit 3
+fi
+
 echo
 echo "=== middle-scroll test ==="
 echo "For 8 seconds after you press Enter, hold the TrackPoint middle button and"
