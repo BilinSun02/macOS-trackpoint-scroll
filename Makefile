@@ -32,7 +32,7 @@ $(BIN): $(OBJ)
 	$(CC) $(OBJ) -o $@ $(LDFLAGS)
 
 $(HELPER_BIN): $(HELPER_OBJ)
-	$(CC) $(HELPER_OBJ) -o $@
+	$(CC) $(HELPER_OBJ) -o $@ -framework IOKit -framework CoreFoundation
 
 build/mac_trackpoint_scroll.o: src/mac_trackpoint_scroll.c src/config.h src/event_shim.h src/edge_pressure_client.h src/pointer_rebound.h
 	@mkdir -p build
