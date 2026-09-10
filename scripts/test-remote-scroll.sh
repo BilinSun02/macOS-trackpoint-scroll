@@ -24,20 +24,71 @@ echo "TrackPoint enough that scrolling should clearly occur."
 sleep 8
 
 echo
-echo "=== middle transitions ==="
-grep -E "trackpoint: middle (down|up)" "$LOG" || echo "(none)"
+echo "=== compact scroll summary ==="
+printf "middle transitions: "
+grep -Ec "trackpoint: middle (down|up)" "$LOG" || true
+printf "raw motion samples: "
+grep -Ec "trackpoint: raw [xy]=" "$LOG" || true
+printf "scroll outputs: "
+grep -Ec "trackpoint: scroll x=" "$LOG" || true
+printf "VHID wheel reports: "
+grep -Ec "trackpoint: vhid-wheel send " "$LOG" || true
+printf "observed wheel events: "
+grep -Ec "trackpoint: observed-wheel " "$LOG" || true
+
 echo
-echo "=== raw motion while middle held ==="
-grep -E "trackpoint: raw [xy]=" "$LOG" | head -80 || echo "(none)"
+echo "sent vertical wheel-count distribution:"
+awk '
+/trackpoint: vhid-wheel send / {
+    if (match($0, / v=-?[0-9]+/)) {
+        v=substr($0, RSTART+3, RLENGTH-3)+0
+        counts[v]++
+    }
+}
+END {
+    for (v in counts)
+        printf "  v=%s count=%d\n", v, counts[v]
+}' "$LOG" | sort -n -k1.5
+
 echo
-echo "=== scroll outputs ==="
-grep -E "trackpoint: scroll x=" "$LOG" | head -80 || echo "(none)"
-echo
-echo "=== VHID wheel counts sent ==="
-grep -E "trackpoint: vhid-wheel send " "$LOG" | head -120 || echo "(none)"
-echo
-echo "=== wheel events observed after macOS HID translation ==="
-grep -E "trackpoint: observed-wheel " "$LOG" | head -120 || echo "(none)"
+echo "observed vertical point-delta summary:"
+awk '
+/trackpoint: observed-wheel / {
+    if (match($0, /point\[h=-?[0-9]+ v=-?[0-9]+\]/)) {
+        token=substr($0, RSTART, RLENGTH)
+        sub(/^.* v=/, "", token)
+        sub(/\]$/, "", token)
+        v=token+0
+        a=(v < 0 ? -v : v)
+        if (a > 0) {
+            n++
+            sum += a
+            if (n == 1 || a < min) min=a
+            if (n == 1 || a > max) max=a
+            if (n <= 5) first[n]=a
+            last1=last2; last2=last3; last3=last4; last4=last5; last5=a
+        }
+    }
+}
+END {
+    if (!n) {
+        print "  (none)"
+        exit
+    }
+    printf "  nonzero events=%d min_abs=%g max_abs=%g mean_abs=%.2f\n",
+           n, min, max, sum/n
+    printf "  first_abs:"
+    for (i=1; i<=n && i<=5; i++) printf " %g", first[i]
+    printf "\n"
+    printf "  last_abs:"
+    if (n >= 5) printf " %g %g %g %g %g", last1,last2,last3,last4,last5
+    else {
+        start=n-4; if (start < 1) start=1
+        for (i=start; i<=n; i++) printf " %g", first[i]
+    }
+    printf "\n"
+}' "$LOG"
+
 echo
 echo "=== core / posting errors ==="
 grep -E "core (gesture transition|feed|tick) failed|virtual-HID .* failed|IOHIDManagerOpen failed" "$LOG" || echo "(none)"
