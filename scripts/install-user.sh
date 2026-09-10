@@ -99,7 +99,7 @@ codesign --display --verbose=1 "$APP_DIR" 2>&1 | grep -E '^(Identifier|Authority
 echo "designated requirement:"
 codesign --display --requirements - "$APP_DIR" 2>&1 | sed -n 's/^designated => /  /p'
 
-echo "Installing the root edge-pressure helper (sudo required)..."
+echo "Installing the root virtual-HID helper (sudo required)..."
 sudo sh "$ROOT/scripts/install-helper-root.sh" "$BUNDLE_HELPER" "$UID_NUM"
 
 if [ ! -e "$CONFIG_PATH" ]; then
@@ -120,7 +120,6 @@ cat >"$PLIST" <<EOF
         <string>$INSTALL_BIN</string>
         <string>--seize</string>
         <string>--edge-pressure-helper</string>
-        <string>--vhid-pointer</string>
         <string>--config</string>
         <string>$CONFIG_PATH</string>
     </array>
@@ -147,15 +146,15 @@ echo "application: $APP_DIR"
 echo "binary:      $INSTALL_BIN"
 echo "config:      $CONFIG_PATH"
 echo "logs:        $LOG_DIR"
-echo "edge helper: /Library/PrivilegedHelperTools/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
+echo "virtual-HID helper: /Library/PrivilegedHelperTools/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
 echo
 echo "Required macOS privacy grants for the application:"
 echo "  System Settings > Privacy & Security > Input Monitoring"
 echo "  System Settings > Privacy & Security > Accessibility"
 echo "  add/enable: $APP_DIR"
 echo
-echo "Input Monitoring permits exclusive HID access; Accessibility permits the"
-echo "synthetic Quartz pointer/scroll events that replace the seized mouse events."
+echo "Input Monitoring permits exclusive HID access; Accessibility/PostEvent access"
+echo "permits the active scroll rewrite tap used by the virtual-HID scroll path."
 echo "After changing either grant, restart with:"
 echo "  launchctl kickstart -k gui/$UID_NUM/$LABEL"
 echo
@@ -163,7 +162,7 @@ echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
 
 echo
-echo "edge helper status:"
+echo "virtual-HID helper status:"
 echo "  sudo launchctl print system/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
-echo "edge helper logs:"
+echo "virtual-HID helper logs:"
 echo "  sudo tail -f '/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log'"
