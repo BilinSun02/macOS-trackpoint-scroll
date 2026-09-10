@@ -24,11 +24,12 @@ The validated v1 path opens the matching HID device with `kIOHIDOptionsTypeSeize
 Consequences:
 
 - the normal macOS mouse consumer no longer receives the adapter's events;
-- the daemon forwards ordinary pointer motion and left/right buttons through Quartz;
+- the daemon forwards ordinary pointer motion and button state through Karabiner's DriverKit virtual mouse;
 - middle+motion is consumed as TrackPoint scrolling;
+- middle-button scroll output uses a virtual-HID wheel carrier plus an active CoreGraphics rewrite tap;
 - the target adapter is isolated from unrelated pointing devices.
 
-The LaunchAgent runs as the logged-in user; root/sudo is not part of the supported installation.
+The main LaunchAgent runs as the logged-in user. A narrow root helper is installed with `sudo` because Karabiner's virtual-HID service exposes its pointing-device connection through a root-only socket; the helper only bridges compact pointer/button/wheel reports from the user daemon.
 
 ## Permissions
 
@@ -47,9 +48,9 @@ Add/enable:
 
 Input Monitoring is required for the exclusive IOHID open. Without it, `IOHIDManagerOpen` returns `kIOReturnNotPermitted` (`0xe00002e2`).
 
-Accessibility is required for synthetic Quartz event posting. Without it, the daemon can successfully seize the TrackPoint while its replacement pointer events are not accepted, leaving the cursor apparently immobile.
+Accessibility/CoreGraphics PostEvent access is required for the active scroll rewrite tap. Without it, the daemon can seize the TrackPoint and forward pointer motion through virtual HID, but the validated exact-magnitude scroll path cannot arm.
 
-On the tested Sequoia system, automatic permission requests were not reliable enough to use as the installation contract. After granting permissions, restart the LaunchAgent:
+The daemon requests Input Monitoring, CoreGraphics PostEvent access, and Accessibility trust at startup. Permission prompts are asynchronous, so after granting them restart the LaunchAgent:
 
 ```sh
 launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
@@ -66,18 +67,21 @@ The installed daemon logs to:
 A healthy startup includes lines similar to:
 
 ```text
-trackpoint: running for vid=5859 pid=0001, scale=8, direction=traditional [exclusive seize mode]
+trackpoint: privacy input-monitoring=granted cg-post-event=granted ax-trusted=yes
+trackpoint: active scroll rewrite tap created at HID tap
+trackpoint: VHID scroll carrier rewrite enabled (HID tap)
+trackpoint: running for vid=5859 pid=0001, scale=8, direction=traditional [exclusive seize + full virtual-HID pointer]
 trackpoint: matched HID device xy_3dg12 USB RF Adapter (vid=5859 pid=0001) [seized]
 trackpoint: raw HID pointer curve speed=1 acceleration=0 velocity=0.1 counts/ms
 ```
 
-If the HID open fails with `0xe00002e2`, check Input Monitoring. If the device matches/seizes but pointer and scroll injection are ineffective, check Accessibility.
+If the HID open fails with `0xe00002e2`, check Input Monitoring. If the active scroll rewrite tap cannot be created, check the PostEvent/Accessibility grants.
 
 ## Pointer forwarding
 
-The adapter reports X and Y as separate HID callbacks. Quartz event posting is asynchronous, so the second axis can otherwise query an old cursor position and overwrite the first. The event shim caches the most recently posted synthetic position for 50 ms, allowing split-axis reports to compose.
+Optional pointer speed/acceleration is applied to the raw HID values before relative virtual-HID reports are sent. It uses the HID timestamps, not synthetic CoreGraphics timestamps. Middle-button scrolling bypasses this pointer curve and feeds raw deltas to the shared scroll core.
 
-Optional pointer speed/acceleration is applied to the raw HID values before pointer events are created. It uses the HID timestamps, not synthetic Quartz timestamps. Middle-button scrolling bypasses this pointer curve and feeds raw deltas to the shared scroll core.
+The earlier absolute-Quartz split-axis cache and display-edge latch remain only in the non-VHID compatibility path; the installed configuration does not use them.
 
 ## Sparse-report behavior
 
