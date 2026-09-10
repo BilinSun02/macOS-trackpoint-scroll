@@ -45,7 +45,7 @@ ditto "$SOURCE_APP" "$APP_DIR"
 # from the installed copy after the user explicitly runs this installer.
 xattr -dr com.apple.quarantine "$APP_DIR" >/dev/null 2>&1 || true
 
-echo "Installing the root edge-pressure helper (sudo required)..."
+echo "Installing the root virtual-HID helper (sudo required)..."
 sudo sh "$ROOT_HELPER_INSTALLER" "$INSTALL_HELPER" "$UID_NUM"
 
 if [ ! -e "$CONFIG_PATH" ]; then
@@ -66,7 +66,6 @@ cat >"$PLIST" <<EOF
         <string>$INSTALL_BIN</string>
         <string>--seize</string>
         <string>--edge-pressure-helper</string>
-        <string>--vhid-pointer</string>
         <string>--config</string>
         <string>$CONFIG_PATH</string>
     </array>
@@ -93,7 +92,7 @@ echo "application: $APP_DIR"
 echo "binary:      $INSTALL_BIN"
 echo "config:      $CONFIG_PATH"
 echo "logs:        $LOG_DIR"
-echo "edge helper: /Library/PrivilegedHelperTools/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
+echo "virtual-HID helper: /Library/PrivilegedHelperTools/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
 echo
 echo "No Xcode, compiler, or code-signing identity was used on this Mac."
 echo
@@ -109,7 +108,7 @@ echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
 
 echo
-echo "edge helper status:"
+echo "virtual-HID helper status:"
 echo "  sudo launchctl print system/io.github.bilinsun02.macos-trackpoint-scroll.edge-pressure-helper"
-echo "edge helper logs:"
+echo "virtual-HID helper logs:"
 echo "  sudo tail -f '/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log'"
