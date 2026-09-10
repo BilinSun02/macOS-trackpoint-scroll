@@ -24,7 +24,6 @@
 #define DEFAULT_VENDOR_ID  0x5859
 #define DEFAULT_PRODUCT_ID 0x0001
 #define MIDDLE_BUTTON_USAGE 3
-#define TPSC_VHID_SCROLL_PIXELS_PER_STEP 8.0
 #define TPSC_SCROLL_REWRITE_QUEUE_CAPACITY 2048
 
 struct tpsc_scroll_rewrite {
@@ -61,7 +60,6 @@ struct app {
     bool verbose;
     bool suppress_middle_click;
     bool system_natural_scroll;
-    bool scroll_rewrite_enabled;
     CGEventTapLocation scroll_rewrite_tap_location;
     bool middle_down;
     bool left_down;
@@ -69,14 +67,6 @@ struct app {
     bool target_present;
     bool have_scroll_anchor;
 
-    uint64_t pointer_diag_window_start_us;
-    uint64_t pointer_diag_raw_x_events;
-    uint64_t pointer_diag_raw_y_events;
-    int64_t pointer_diag_raw_x_sum;
-    int64_t pointer_diag_raw_y_sum;
-    uint64_t pointer_diag_post_events;
-    int64_t pointer_diag_post_x_sum;
-    int64_t pointer_diag_post_y_sum;
 };
 
 static mach_timebase_info_data_t g_timebase;
@@ -496,7 +486,7 @@ post_scroll(struct app *app, double vertical, double horizontal)
     if (app->vhid_pointer) {
         double system_sign = app->system_natural_scroll ? 1.0 : -1.0;
 
-        if (app->scroll_rewrite_enabled) {
+        {
             /*
              * Use a unit VHID wheel report only as a hardware-class carrier.
              * The corresponding Quartz event is rewritten in the event tap
@@ -513,13 +503,6 @@ post_scroll(struct app *app, double vertical, double horizontal)
                 return;
             }
 
-            if (app->verbose)
-                fprintf(stderr,
-                        "trackpoint: vhid-wheel carrier h=%" PRId32
-                        " v=%" PRId32 " target h=%g v=%g queue=%zu\n",
-                        point_horizontal, point_vertical,
-                        horizontal, vertical,
-                        app->scroll_rewrite_count);
 
             if (!tpsc_edge_pressure_post_report(
                     0, 0, point_vertical, point_horizontal,
@@ -531,32 +514,6 @@ post_scroll(struct app *app, double vertical, double horizontal)
             return;
         }
 
-        /*
-         * Fallback when the rewrite tap cannot be created: preserve the
-         * previous quantized VHID-wheel behavior.
-         */
-        point_vertical = take_point_delta(
-            system_sign * vertical / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
-            &app->point_remainder_y);
-        point_horizontal = take_point_delta(
-            system_sign * horizontal / TPSC_VHID_SCROLL_PIXELS_PER_STEP,
-            &app->point_remainder_x);
-
-        if (point_vertical == 0 && point_horizontal == 0)
-            return;
-
-        if (app->verbose)
-            fprintf(stderr,
-                    "trackpoint: vhid-wheel fallback h=%" PRId32
-                    " v=%" PRId32 " from h=%g v=%g\n",
-                    point_horizontal, point_vertical,
-                    horizontal, vertical);
-
-        if (!tpsc_edge_pressure_post_report(
-                0, 0, point_vertical, point_horizontal,
-                vhid_button_mask(app)))
-            fprintf(stderr,
-                    "trackpoint: virtual-HID scroll forwarding failed\n");
         return;
     }
 
@@ -619,11 +576,6 @@ static void
 post_relative_motion(int64_t dx, int64_t dy, struct app *app)
 {
     if (app->vhid_pointer) {
-        if (app->verbose) {
-            app->pointer_diag_post_events++;
-            app->pointer_diag_post_x_sum += dx;
-            app->pointer_diag_post_y_sum += dy;
-        }
 
         if (!tpsc_edge_pressure_post_state(dx, dy, vhid_button_mask(app)))
             fprintf(stderr,
@@ -659,60 +611,9 @@ post_relative_motion(int64_t dx, int64_t dy, struct app *app)
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaX, dx);
     CGEventSetIntegerValueField(event, kCGMouseEventDeltaY, dy);
 
-    if (app->verbose) {
-        app->pointer_diag_post_events++;
-        app->pointer_diag_post_x_sum += dx;
-        app->pointer_diag_post_y_sum += dy;
-    }
 
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
-}
-
-static void
-pointer_diag_observe_raw(struct app *app, uint32_t usage, int64_t value,
-                         uint64_t time_us)
-{
-    if (!app->verbose || value == 0)
-        return;
-
-    if (app->pointer_diag_window_start_us == 0)
-        app->pointer_diag_window_start_us = time_us;
-
-    if (usage == kHIDUsage_GD_X) {
-        app->pointer_diag_raw_x_events++;
-        app->pointer_diag_raw_x_sum += value;
-    } else if (usage == kHIDUsage_GD_Y) {
-        app->pointer_diag_raw_y_events++;
-        app->pointer_diag_raw_y_sum += value;
-    }
-}
-
-static void
-pointer_diag_maybe_report(struct app *app, uint64_t time_us)
-{
-    if (!app->verbose || app->pointer_diag_window_start_us == 0 ||
-        time_us < app->pointer_diag_window_start_us ||
-        time_us - app->pointer_diag_window_start_us < 1000000ULL)
-        return;
-
-    fprintf(stderr,
-            "trackpoint: pointer-diag raw[x events=%" PRIu64 " sum=%" PRId64
-            ", y events=%" PRIu64 " sum=%" PRId64
-            "] post[events=%" PRIu64 " x=%" PRId64 " y=%" PRId64 "]\n",
-            app->pointer_diag_raw_x_events, app->pointer_diag_raw_x_sum,
-            app->pointer_diag_raw_y_events, app->pointer_diag_raw_y_sum,
-            app->pointer_diag_post_events, app->pointer_diag_post_x_sum,
-            app->pointer_diag_post_y_sum);
-
-    app->pointer_diag_window_start_us = time_us;
-    app->pointer_diag_raw_x_events = 0;
-    app->pointer_diag_raw_y_events = 0;
-    app->pointer_diag_raw_x_sum = 0;
-    app->pointer_diag_raw_y_sum = 0;
-    app->pointer_diag_post_events = 0;
-    app->pointer_diag_post_x_sum = 0;
-    app->pointer_diag_post_y_sum = 0;
 }
 
 static void
@@ -847,8 +748,6 @@ input_value(void *context, IOReturn result, void *sender, IOHIDValueRef value)
 
     if (page == kHIDPage_GenericDesktop &&
         (usage == kHIDUsage_GD_X || usage == kHIDUsage_GD_Y)) {
-        if (app->seize && !app->middle_down)
-            pointer_diag_observe_raw(app, usage, integer_value, time_us);
         handle_motion(app, usage, integer_value, time_us);
     } else if (page == kHIDPage_Button) {
         handle_button(app, usage, integer_value != 0, time_us);
@@ -865,7 +764,6 @@ tick_callback(CFRunLoopTimerRef timer, void *context)
 
     (void)timer;
 
-    pointer_diag_maybe_report(app, now_us());
 
     if (!app->middle_down || !tpsc_engine_needs_ticks(app->engine))
         return;
@@ -881,113 +779,9 @@ tick_callback(CFRunLoopTimerRef timer, void *context)
         double horizontal = app->x_sign * output.x * app->scroll_scale;
         double vertical = app->y_sign * output.y * app->scroll_scale;
         post_scroll(app, vertical, horizontal);
-        if (app->verbose)
-            fprintf(stderr, "trackpoint: scroll x=%g y=%g\n",
-                    horizontal, vertical);
-    }
-}
-
-static bool
-is_mouse_motion_event(CGEventType type)
-{
-    return type == kCGEventMouseMoved ||
-           type == kCGEventLeftMouseDragged ||
-           type == kCGEventRightMouseDragged ||
-           type == kCGEventOtherMouseDragged;
-}
-
-static CGEventRef
-event_tap_callback(CGEventTapProxy proxy, CGEventType type,
-                   CGEventRef event, void *context)
-{
-    struct app *app = context;
-    int64_t button;
-
-    (void)proxy;
-
-    if (type == kCGEventTapDisabledByTimeout ||
-        type == kCGEventTapDisabledByUserInput) {
-        if (app->event_tap)
-            CGEventTapEnable(app->event_tap, true);
         return event;
     }
 
-    if (type == kCGEventScrollWheel && app->vhid_pointer &&
-        app->scroll_rewrite_enabled && app->middle_down) {
-        struct tpsc_scroll_rewrite target;
-        int64_t observed_point_h =
-            CGEventGetIntegerValueField(
-                event, kCGScrollWheelEventPointDeltaAxis2);
-        int64_t observed_point_v =
-            CGEventGetIntegerValueField(
-                event, kCGScrollWheelEventPointDeltaAxis1);
-
-        if (scroll_rewrite_pop(app, &target)) {
-            int32_t target_point_v =
-                take_point_delta(target.vertical, &app->point_remainder_y);
-            int32_t target_point_h =
-                take_point_delta(target.horizontal, &app->point_remainder_x);
-
-            CGEventSetIntegerValueField(
-                event, kCGScrollWheelEventDeltaAxis1, target_point_v);
-            CGEventSetIntegerValueField(
-                event, kCGScrollWheelEventDeltaAxis2, target_point_h);
-            CGEventSetIntegerValueField(
-                event, kCGScrollWheelEventPointDeltaAxis1, target_point_v);
-            CGEventSetIntegerValueField(
-                event, kCGScrollWheelEventPointDeltaAxis2, target_point_h);
-            CGEventSetDoubleValueField(
-                event, kCGScrollWheelEventFixedPtDeltaAxis1,
-                target.vertical);
-            CGEventSetDoubleValueField(
-                event, kCGScrollWheelEventFixedPtDeltaAxis2,
-                target.horizontal);
-            CGEventSetIntegerValueField(
-                event, kCGScrollWheelEventIsContinuous, 1);
-
-            if (app->verbose)
-                fprintf(stderr,
-                        "trackpoint: rewrite-wheel "
-                        "observed-point[h=%" PRId64 " v=%" PRId64 "] "
-                        "target-point[h=%" PRId32 " v=%" PRId32 "] "
-                        "target-fixed[h=%g v=%g] queue=%zu\n",
-                        observed_point_h, observed_point_v,
-                        target_point_h, target_point_v,
-                        target.horizontal, target.vertical,
-                        app->scroll_rewrite_count);
-            return event;
-        }
-
-        if (app->verbose)
-            fprintf(stderr,
-                    "trackpoint: rewrite-wheel queue empty; "
-                    "passing observed point[h=%" PRId64 " v=%" PRId64 "]\n",
-                    observed_point_h, observed_point_v);
-        return event;
-    }
-
-    if (type == kCGEventScrollWheel && app->verbose) {
-        fprintf(stderr,
-                "trackpoint: observed-wheel "
-                "delta[h=%" PRId64 " v=%" PRId64 "] "
-                "point[h=%" PRId64 " v=%" PRId64 "] "
-                "fixed[h=%g v=%g] continuous=%" PRId64 "\n",
-                CGEventGetIntegerValueField(
-                    event, kCGScrollWheelEventDeltaAxis2),
-                CGEventGetIntegerValueField(
-                    event, kCGScrollWheelEventDeltaAxis1),
-                CGEventGetIntegerValueField(
-                    event, kCGScrollWheelEventPointDeltaAxis2),
-                CGEventGetIntegerValueField(
-                    event, kCGScrollWheelEventPointDeltaAxis1),
-                CGEventGetDoubleValueField(
-                    event, kCGScrollWheelEventFixedPtDeltaAxis2),
-                CGEventGetDoubleValueField(
-                    event, kCGScrollWheelEventFixedPtDeltaAxis1),
-                CGEventGetIntegerValueField(
-                    event, kCGScrollWheelEventIsContinuous));
-        return event;
-    }
 
     if (!app->target_present || app->seize)
         return event;
@@ -1059,9 +853,9 @@ setup_event_tap(struct app *app)
 
         if (!app->event_tap) {
             fprintf(stderr,
-                    "trackpoint: warning: no active scroll rewrite tap "
-                    "available; falling back to accelerated VHID wheel path\n");
-            return 0;
+                    "trackpoint: cannot create active scroll rewrite tap; "
+                    "grant Accessibility/PostEvent access and relaunch.\n");
+            return -1;
         }
     } else {
         mask = CGEventMaskBit(kCGEventMouseMoved) |
@@ -1088,15 +882,8 @@ setup_event_tap(struct app *app)
     app->event_tap_source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault,
                                                           app->event_tap, 0);
     if (!app->event_tap_source) {
-        if (app->seize) {
-            fprintf(stderr,
-                    "trackpoint: warning: cannot create active scroll rewrite "
-                    "run-loop source; falling back to accelerated VHID wheel "
-                    "path\n");
-            CFRelease(app->event_tap);
-            app->event_tap = NULL;
-            return 0;
-        }
+        fprintf(stderr,
+                "trackpoint: cannot create event-tap run-loop source\n");
         return -1;
     }
 
@@ -1104,7 +891,6 @@ setup_event_tap(struct app *app)
                        kCFRunLoopCommonModes);
     CGEventTapEnable(app->event_tap, true);
     if (app->seize && app->vhid_pointer) {
-        app->scroll_rewrite_enabled = true;
         fprintf(stderr,
                 "trackpoint: VHID scroll carrier rewrite enabled (%s tap)\n",
                 app->scroll_rewrite_tap_location == kCGHIDEventTap
