@@ -33,6 +33,12 @@ echo
 echo "=== scroll outputs ==="
 grep -E "trackpoint: scroll x=" "$LOG" | head -80 || echo "(none)"
 echo
+echo "=== VHID wheel counts sent ==="
+grep -E "trackpoint: vhid-wheel send " "$LOG" | head -120 || echo "(none)"
+echo
+echo "=== wheel events observed after macOS HID translation ==="
+grep -E "trackpoint: observed-wheel " "$LOG" | head -120 || echo "(none)"
+echo
 echo "=== core / posting errors ==="
 grep -E "core (gesture transition|feed|tick) failed|virtual-HID .* failed|IOHIDManagerOpen failed" "$LOG" || echo "(none)"
 echo
