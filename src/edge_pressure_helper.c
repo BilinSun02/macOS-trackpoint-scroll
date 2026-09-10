@@ -108,7 +108,8 @@ serve_client(int fd, uid_t allowed_uid)
         if (!read_all(fd, &message, sizeof(message)))
             break;
 
-        if (!tpsc_vhid_post_relative(message.dx, message.dy)) {
+        if (!tpsc_vhid_post_pointing(message.buttons,
+                                     message.dx, message.dy)) {
             fprintf(stderr,
                     "edge-pressure-helper: virtual HID forwarding failed\n");
             return -1;
