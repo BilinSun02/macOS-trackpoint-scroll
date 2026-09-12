@@ -10,6 +10,53 @@ Tested adapter:
 - product `0x0001`
 - `xy_3dg12 xy_3dg12 USB RF Adapter`
 
+## Installation choices
+
+### Build and install from source
+
+This is the recommended path when no official prebuilt release is available.
+
+A paid Apple Developer Program membership is **not required** to build and run the software on your own Mac. The source installer needs a persistent local code-signing identity so macOS can associate Input Monitoring and Accessibility/TCC grants with a stable app identity. An **Apple Development** identity created by Xcode for your Apple Account is sufficient for this local workflow.
+
+The complete clean-Mac walkthrough is in [docs/BUILDING_FROM_SOURCE.md](docs/BUILDING_FROM_SOURCE.md). It covers:
+
+1. installing Xcode and creating an Apple Development identity;
+2. installing/enabling Karabiner-Elements and its DriverKit virtual HID device;
+3. cloning the repository and pinned submodule;
+4. building and installing with `make install-user`;
+5. granting macOS privacy permissions;
+6. verifying the user daemon and root virtual-HID helper;
+7. updating, uninstalling, and optionally creating your own archive.
+
+The short version, after the signing identity and Karabiner virtual HID are ready, is:
+
+```sh
+git clone --recurse-submodules https://github.com/BilinSun02/macOS-trackpoint-scroll.git
+cd macOS-trackpoint-scroll
+make install-user
+```
+
+If multiple signing identities are installed, select one explicitly:
+
+```sh
+security find-identity -v -p codesigning
+MACOS_TRACKPOINT_CODESIGN_IDENTITY="<40-character-identity-hash>" make install-user
+```
+
+Do not casually switch identities between updates; keeping the same persistent identity helps preserve the app's effective macOS privacy identity across rebuilds.
+
+### Prebuilt release installation
+
+A prebuilt release, when one is published, can be installed on a destination Mac with **no Xcode, compiler toolchain, or local signing identity**. Download the `.tar.gz` release, extract it, and run:
+
+```sh
+./install.sh
+```
+
+See [docs/INSTALLING.md](docs/INSTALLING.md) for checksum verification, installation, privacy permissions, updating, and uninstalling.
+
+An Apple Development-signed archive is suitable for controlled development/testing, but the signing certificate identity is inspectable by recipients and it is not the normal public-distribution path. Broad public distribution should use **Developer ID Application** signing and notarization. See [docs/PACKAGING.md](docs/PACKAGING.md).
+
 ## Architecture
 
 The hardware-validated path uses exclusive HID ownership (`--seize`) together with the privileged virtual-HID helper (`--edge-pressure-helper`). The daemon reads the target mouse through IOKit, preventing the normal macOS mouse stack from consuming its reports. It then:
@@ -40,37 +87,11 @@ and managed by:
 
 Pointer acceleration is applied before the virtual-HID report is emitted, using the original `IOHIDValueGetTimeStamp()` timestamps. The default `pointer_acceleration=0` is a linear/no-acceleration path.
 
-## Prebuilt release installation
-
-A prebuilt release can be installed on a destination Mac with **no Xcode, compiler toolchain, or Apple code-signing identity**. Published artifacts should be packaged on a maintainer Mac with a stable Apple-issued signing identity so macOS TCC can recognize the application across rebuilds.
-
-Download the `.tar.gz` release, extract it, and run:
-
-```sh
-./install.sh
-```
-
-Do not publish an ad-hoc-signed build as the normal release artifact. Rebuilt ad-hoc binaries have an unstable TCC identity; ad-hoc packaging is retained only as an explicit diagnostic/CI fallback. For public distribution, Developer ID Application signing and notarization are the appropriate Apple distribution path.
-
-See [docs/INSTALLING.md](docs/INSTALLING.md) for the complete fresh-Mac installation, privacy-permission, update, and uninstall procedure.
-
-Maintainers can create the archive with a stable signing identity:
-
-```sh
-IDENTITY="$(
-  security find-identity -v -p codesigning |
-  awk '/^[[:space:]]*[0-9]+\)/ { print $2; exit }'
-)"
-
-make clean
-MACOS_TRACKPOINT_CODESIGN_IDENTITY="$IDENTITY" make dist
-```
-
-See [docs/PACKAGING.md](docs/PACKAGING.md) for the complete packaging and release-upload procedure.
-
 For durable architecture rules, known macOS input-stack behavior, symptom-to-cause guidance, and debugging practices, see [docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md).
 
-## Build
+## Build only
+
+If you only want to compile without installing:
 
 ```sh
 git clone --recurse-submodules https://github.com/BilinSun02/macOS-trackpoint-scroll.git
@@ -84,29 +105,22 @@ If needed:
 git submodule update --init --recursive
 ```
 
-## Install for automatic startup from a source checkout
+A successful build produces:
 
-The source-tree developer installation is:
-
-```sh
-make install-user
+```text
+build/macOS-trackpoint-scroll
+build/macOS-trackpoint-scroll-edge-pressure-helper
 ```
 
-This developer installer requires a persistent code-signing identity. An Apple Development identity created by Xcode is sufficient for local use; verify it with:
+## Installed source-build layout
 
-```sh
-security find-identity -v -p codesigning
-```
-
-For a destination Mac without Xcode or an identity, use the **prebuilt release installer** described above instead.
-
-The signed application is installed at:
+`make install-user` installs the signed application at:
 
 ```text
 ~/Applications/macOS-trackpoint-scroll.app
 ```
 
-The per-user LaunchAgent is installed at:
+and the per-user LaunchAgent at:
 
 ```text
 ~/Library/LaunchAgents/io.github.bilinsun02.macos-trackpoint-scroll.plist
@@ -128,20 +142,13 @@ Both are required for the seized architecture:
 - **Input Monitoring** permits the app to open/read the target HID device exclusively.
 - **Accessibility / CoreGraphics PostEvent access** permits active event taps and replacement Quartz events used by the scroll-rewrite path.
 
-The daemon requests these gates explicitly at startup and logs them separately as
-`input-monitoring`, `cg-post-event`, and `ax-trusted`. A manually enabled
-Accessibility entry is not sufficient evidence that the running LaunchAgent is
-trusted; on the validated macOS 26 test system, the explicit runtime request
-produced the effective Accessibility prompt and the active rewrite tap became
-available only after that grant.
+The daemon requests these gates explicitly at startup and logs them separately as `input-monitoring`, `cg-post-event`, and `ax-trusted`. A manually enabled Accessibility entry is not sufficient evidence that the running LaunchAgent is trusted; use the runtime log as the authoritative check.
 
 After changing either permission:
 
 ```sh
 launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
 ```
-
-Persistent signing plus the stable bundle identifier is used for source-tree developer installs so these grants can survive ordinary rebuild/reinstall cycles. Ad-hoc-signed binary releases may require the grants to be enabled again after an update.
 
 Logs:
 
@@ -211,10 +218,7 @@ pointer_acceleration=0.0
 pointer_acceleration_velocity=0.10
 ```
 
-The common scroll-profile keys intentionally match `libinput-trackpoint-scroll`.
-Set `profile=affine`, `profile=quadratic`, or `profile=hyperbolic`; only the
-selected profile's parameter block is used. Profile/timing changes are read at
-daemon startup, so restart the LaunchAgent after editing the config:
+The common scroll-profile keys intentionally match `libinput-trackpoint-scroll`. Set `profile=affine`, `profile=quadratic`, or `profile=hyperbolic`; only the selected profile's parameter block is used. Profile/timing changes are read at daemon startup, so restart the LaunchAgent after editing the config:
 
 ```sh
 launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
@@ -263,12 +267,7 @@ hyperbolic_k=-1.175
 
 macOS scroll units are not identical to libinput scroll units, so `scroll_scale` remains exposed for calibration.
 
-The carrier/rewrite step is intentional. Conventional VHID wheel reports were
-measured one-for-one at the CoreGraphics tap, but identical unit reports were
-expanded by macOS into strongly rate-dependent point deltas (up to roughly
-95 pixels in the observed test). Rewriting those events with the core output
-removes that OS-level wheel acceleration while retaining a hardware-origin
-scroll event that macOS accepts.
+The carrier/rewrite step is intentional. Conventional VHID wheel reports were measured one-for-one at the CoreGraphics tap, but identical unit reports were expanded by macOS into strongly rate-dependent point deltas (up to roughly 95 pixels in the observed test). Rewriting those events with the core output removes that OS-level wheel acceleration while retaining a hardware-origin scroll event that macOS accepts.
 
 ## Manual diagnostic run
 
