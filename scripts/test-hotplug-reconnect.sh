@@ -2,6 +2,7 @@
 set -eu
 
 LABEL="io.github.bilinsun02.macos-trackpoint-scroll"
+HELPER_LABEL="$LABEL.edge-pressure-helper"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 USER_LOG="$HOME/Library/Logs/macOS-trackpoint-scroll/stderr.log"
 HELPER_LOG="/Library/Logs/macOS-trackpoint-scroll/edge-pressure-helper.stderr.log"
@@ -89,6 +90,12 @@ print_snapshot() {
     echo
     echo "=== root virtual-HID helper log ==="
     sudo tail -n 200 "$HELPER_LOG" 2>/dev/null || true
+
+    echo
+    echo "=== root virtual-HID helper launchd state ==="
+    sudo launchctl print "system/$HELPER_LABEL" 2>&1 |
+      grep -E \
+        'state =|pid =|runs =|last exit code|last terminating signal|program =|arguments =|spawn type =|properties =' || true
 
     echo
     echo "=== LaunchAgent configuration ==="
@@ -217,6 +224,8 @@ echo "=== interpretation ==="
 cat <<'EOF'
 - LaunchAgent state 'not running': the user daemon exited or was terminated;
   ordinary hardware pointer behavior may continue, but project scrolling cannot.
+- 'last terminating signal = Broken pipe: 13': a stream-socket write reached a
+  peer that had disappeared without SIGPIPE suppression.
 - No 'matched HID device' after replug while the daemon remains running: HID
   re-enumeration/matching failed.
 - 'middle down' missing after a confirmed match: the middle-button transition
