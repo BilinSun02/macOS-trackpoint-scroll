@@ -64,10 +64,15 @@ dist/macOS-trackpoint-scroll-<version>.tar.gz.sha256
 
 ## Inspect the result
 
+The checksum file records the archive basename, so verify it with `dist/` as the working directory:
+
 ```sh
 VERSION="$(cat VERSION)"
 tar -tzf "dist/macOS-trackpoint-scroll-$VERSION.tar.gz"
-shasum -a 256 -c "dist/macOS-trackpoint-scroll-$VERSION.tar.gz.sha256"
+(
+  cd dist
+  shasum -a 256 -c "macOS-trackpoint-scroll-$VERSION.tar.gz.sha256"
+)
 ```
 
 Inspect the installed code identity from an unpacked copy:
