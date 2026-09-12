@@ -22,27 +22,89 @@ usage: scripts/test-hotplug-reconnect.sh [--capture-only|--reproduce]
 EOF
 }
 
+agent_state() {
+    launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null |
+        sed -n 's/^[[:space:]]*state = //p' | head -n 1
+}
+
+agent_config_is_verbose() {
+    /usr/libexec/PlistBuddy -c 'Print :ProgramArguments' "$PLIST" 2>/dev/null |
+        grep -q -- '--verbose'
+}
+
+print_crash_evidence() {
+    echo
+    echo "=== recent crash reports ==="
+    reports="$({
+        ls -1t "$HOME"/Library/Logs/DiagnosticReports/macOS-trackpoint-scroll*.ips \
+            "$HOME"/Library/Logs/DiagnosticReports/macOS-trackpoint-scroll*.crash \
+            /Library/Logs/DiagnosticReports/macOS-trackpoint-scroll*.ips \
+            /Library/Logs/DiagnosticReports/macOS-trackpoint-scroll*.crash \
+            2>/dev/null || true
+    } | head -n 3)"
+
+    if [ -z "$reports" ]; then
+        echo "(none found)"
+    else
+        printf '%s\n' "$reports"
+        printf '%s\n' "$reports" | while IFS= read -r report; do
+            [ -f "$report" ] || continue
+            echo "--- $report ---"
+            grep -E \
+              '"procName"|"exception"|"termination"|Exception Type|Exception Codes|Termination Reason|Crashed Thread|Signal' \
+              "$report" 2>/dev/null | head -n 40 || true
+        done
+    fi
+
+    echo
+    echo "=== recent unified log for user daemon ==="
+    /usr/bin/log show --last 30m --style compact \
+        --predicate 'process == "macOS-trackpoint-scroll"' 2>/dev/null |
+        tail -n 100 || true
+}
+
 print_snapshot() {
+    snapshot_state="$(agent_state || true)"
+
     echo
     echo "=== user-daemon lifecycle / errors ==="
+    if [ -f "$USER_LOG" ]; then
+        stat -f 'stderr.log modified: %Sm' -t '%Y-%m-%d %H:%M:%S %z' \
+            "$USER_LOG" 2>/dev/null || true
+    fi
     grep -E \
       'privacy |active scroll rewrite|VHID scroll carrier|matched HID|target HID device removed|middle (down|up)|core .*failed|virtual-HID .*failed|edge-pressure helper' \
       "$USER_LOG" 2>/dev/null | tail -n 200 || true
 
     echo
-    echo "=== recent verbose motion / scroll (if enabled) ==="
-    grep -E \
-      'middle (down|up)|raw [xy]=|scroll x=|core .*failed|virtual-HID .*failed' \
-      "$USER_LOG" 2>/dev/null | tail -n 120 || true
+    echo "=== recent verbose motion / scroll ==="
+    if agent_config_is_verbose; then
+        grep -E \
+          'middle (down|up)|raw [xy]=|scroll x=|core .*failed|virtual-HID .*failed' \
+          "$USER_LOG" 2>/dev/null | tail -n 120 || true
+    else
+        echo "(current LaunchAgent is not verbose; old verbose records are omitted)"
+    fi
 
     echo
     echo "=== root virtual-HID helper log ==="
     sudo tail -n 200 "$HELPER_LOG" 2>/dev/null || true
 
     echo
+    echo "=== LaunchAgent configuration ==="
+    printf 'plist KeepAlive: '
+    /usr/libexec/PlistBuddy -c 'Print :KeepAlive' "$PLIST" 2>/dev/null ||
+        echo "(absent)"
+
+    echo
     echo "=== LaunchAgent state ==="
     launchctl print "gui/$(id -u)/$LABEL" 2>&1 |
-      grep -E 'state =|pid =|last exit code|program =|arguments =|--seize|--edge-pressure-helper|--verbose' || true
+      grep -E \
+        'state =|pid =|runs =|last exit code|last terminating signal|program =|arguments =|spawn type =|properties =|--seize|--edge-pressure-helper|--verbose' || true
+
+    if [ "$snapshot_state" = "not running" ]; then
+        print_crash_evidence
+    fi
 }
 
 cleanup() {
@@ -88,15 +150,17 @@ sudo -v
 if [ "$MODE" = "--capture-only" ]; then
     cat <<'EOF'
 === hot-plug scrolling state capture ===
-No process will be restarted or reconfigured.
+No process will be restarted or reconfigured. This mode intentionally returns
+immediately after reading the existing logs and launchd state; it does not ask
+you to exercise the TrackPoint.
 EOF
     print_snapshot
     cat <<'EOF'
 
 If scrolling is currently broken, preserve this output before kickstarting the
-agent. The normal (non-verbose) daemon always logs device match/removal and
-transport/lifecycle errors; a prior --reproduce run may additionally provide
-raw/middle/scroll diagnostics.
+agent. The normal (non-verbose) daemon logs device match/removal and transport
+errors. Raw X/Y and per-scroll values only appear when the currently configured
+agent is actually running with --verbose.
 EOF
     exit 0
 fi
@@ -110,8 +174,7 @@ print_snapshot
 BACKUP="$(mktemp -t macos-trackpoint-scroll-plist.XXXXXX)"
 cp "$PLIST" "$BACKUP"
 
-if ! /usr/libexec/PlistBuddy -c 'Print :ProgramArguments' "$PLIST" 2>/dev/null |
-    grep -qx '    --verbose'; then
+if ! agent_config_is_verbose; then
     /usr/libexec/PlistBuddy -c 'Add :ProgramArguments:3 string --verbose' "$PLIST"
     VERBOSE_ADDED=1
 fi
@@ -152,7 +215,10 @@ print_snapshot
 echo
 echo "=== interpretation ==="
 cat <<'EOF'
-- No 'matched HID device' after replug: HID re-enumeration/matching failed.
+- LaunchAgent state 'not running': the user daemon exited or was terminated;
+  ordinary hardware pointer behavior may continue, but project scrolling cannot.
+- No 'matched HID device' after replug while the daemon remains running: HID
+  re-enumeration/matching failed.
 - 'middle down' missing after a confirmed match: the middle-button transition
   did not reach the daemon.
 - 'middle down' appears but no 'raw x/y': motion is not reaching the scroll
