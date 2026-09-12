@@ -127,6 +127,4 @@ echo
 cat "$CHECKSUM"
 echo
 echo "verify checksum:"
-printf '  (cd %s && shasum -a 256 -c %s)\n' \
-    "$(printf '%s' "$DIST_ROOT" | sed "s/'/'\\''/g; s/^/'/; s/$/'/")" \
-    "$(printf '%s' "$(basename "$CHECKSUM")" | sed "s/'/'\\''/g; s/^/'/; s/$/'/")"
+echo "  (cd \"$DIST_ROOT\" && shasum -a 256 -c \"$(basename "$CHECKSUM")\")"
