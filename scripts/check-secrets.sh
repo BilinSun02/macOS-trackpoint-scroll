@@ -7,7 +7,7 @@ cd "$ROOT"
 # High-confidence credential/private-key formats only. Keep this conservative:
 # the goal is to catch material that must never be published without turning
 # ordinary source-code words like "token" or "secret" into false positives.
-SECRET_RE='-----BEGIN ([A-Z0-9]+ )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|A(K|S)IA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|sk_live_[0-9A-Za-z]{20,}|sk-[A-Za-z0-9_-]{32,}|(password|passwd|api[_-]?key|access[_-]?token|secret[_-]?key)[[:space:]]*[:=][[:space:]]*["'"']?[A-Za-z0-9/+_=.-]{12,}'
+SECRET_RE="-----BEGIN ([A-Z0-9]+ )?PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|A(K|S)IA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|sk_live_[0-9A-Za-z]{20,}|sk-[A-Za-z0-9_-]{32,}|(password|passwd|api[_-]?key|access[_-]?token|secret[_-]?key)[[:space:]]*[:=][[:space:]]*[\"']?[A-Za-z0-9/+_=.-]{12,}"
 
 TMP_LIST="$(mktemp -t macos-trackpoint-secrets-objects.XXXXXX)"
 TMP_FINDINGS="$(mktemp -t macos-trackpoint-secrets-findings.XXXXXX)"
