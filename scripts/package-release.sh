@@ -125,3 +125,8 @@ echo "release archive: $ARCHIVE"
 echo "checksum:        $CHECKSUM"
 echo
 cat "$CHECKSUM"
+echo
+echo "verify checksum:"
+printf '  (cd %s && shasum -a 256 -c %s)\n' \
+    "$(printf '%s' "$DIST_ROOT" | sed "s/'/'\\''/g; s/^/'/; s/$/'/")" \
+    "$(printf '%s' "$(basename "$CHECKSUM")" | sed "s/'/'\\''/g; s/^/'/; s/$/'/")"
