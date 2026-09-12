@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.1 - 2026-09-12
+
+Hot-plug and IPC reliability bugfix release.
+
+### Fixed
+
+- Prevent a broken user-daemon-to-helper Unix socket from terminating the user daemon with `SIGPIPE`; socket write failures now reach the existing disconnect/reconnect/retry path.
+- Prevent a broken root-helper-to-Karabiner virtual-HID socket from terminating the root helper with `SIGPIPE`; the helper can now run its existing reconnect/reinitialize path instead.
+- Keep the per-user LaunchAgent alive after an unexpected daemon exit so one transient failure cannot leave TrackPoint scrolling unavailable until a manual `kickstart`.
+
+### Diagnostics and release hygiene
+
+- Preserve intermittent hot-plug failure state with a non-invasive capture mode and report launchd termination metadata for both the user daemon and root helper.
+- Audit the full reachable Git history for high-confidence credential/private-key patterns in CI.
+- Smoke-test ad-hoc package construction and checksum verification in CI while keeping normal release packaging dependent on a local stable Apple-issued signing identity.
+
 ## 1.2.0 - 2026-09-10
 
 Hardware-validated virtual-HID pointer and exact-scroll release.

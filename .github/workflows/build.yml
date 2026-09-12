@@ -11,6 +11,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
+
+      - name: Full-history secret audit
+        run: ./scripts/check-secrets.sh
+
       - name: Build
         run: make
       - name: CLI smoke test
@@ -45,3 +50,13 @@ jobs:
             ./build/macOS-trackpoint-scroll \
               --config /tmp/trackpoint-scroll.conf --help >/dev/null
           done
+
+      - name: Package smoke test
+        env:
+          MACOS_TRACKPOINT_ALLOW_ADHOC: "1"
+        run: |
+          make dist
+          (
+            cd dist
+            shasum -a 256 -c "macOS-trackpoint-scroll-$(cat ../VERSION).tar.gz.sha256"
+          )
