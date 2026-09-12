@@ -1,14 +1,28 @@
 # Packaging a prebuilt release
 
-This guide is for the development Mac that has the repository, Xcode/Command Line Tools, the `trackpoint-scroll-core` submodule, and a stable Apple-issued code-signing identity.
+This guide is for creating a `.tar.gz` bundle after the software already builds correctly. If you are starting from a clean Mac and need to create your own Apple Development identity first, follow [BUILDING_FROM_SOURCE.md](BUILDING_FROM_SOURCE.md) through the signing-identity setup and build steps before returning here.
 
 The destination Mac does **not** need Xcode, a compiler, or a signing identity. Packaging and signing happen before the archive is copied or published.
+
+## Decide what kind of package you are making
+
+There are two materially different signing cases:
+
+### Personal / controlled test package
+
+For your own Macs or controlled testing, a persistent **Apple Development** identity is usable. Xcode can create a development identity for your Apple Account; the source-build guide shows the complete setup.
+
+The signing certificate identity is inspectable by anybody who receives the signed app. Apple Development certificate names can contain personal information associated with the developer account. Inspect the finished signature before sharing the archive.
+
+### Publicly distributed prebuilt package
+
+For a broadly published Mac download, use **Developer ID Application** signing and notarization. Developer ID is Apple's distribution identity for Mac software distributed outside the Mac App Store and requires the appropriate Apple Developer Program membership.
+
+Do not treat an Apple Development-signed or ad-hoc-signed archive as equivalent to a Developer ID + notarized public release.
 
 ## Signing rule
 
 Do not publish an ad-hoc-signed build as the normal release artifact. macOS privacy/TCC authorization is tied to code identity; a rebuilt ad-hoc app has an unstable designated requirement and can fail to match apparently enabled Input Monitoring/PostEvent/Accessibility grants.
-
-For controlled development/test distribution, a stable Apple Development identity is usable. For public distribution, use Developer ID Application signing and notarization.
 
 Check available identities:
 
@@ -29,7 +43,16 @@ make clean
 make
 ```
 
-Choose a signing identity and create the archive:
+If more than one signing identity is installed, inspect the list and explicitly choose the intended 40-character identity hash rather than relying on ordering:
+
+```sh
+security find-identity -v -p codesigning
+IDENTITY="<40-character-identity-hash>"
+
+MACOS_TRACKPOINT_CODESIGN_IDENTITY="$IDENTITY" make dist
+```
+
+If there is only one valid code-signing identity and you intentionally want to use it, this convenience form selects the first one:
 
 ```sh
 IDENTITY="$(
@@ -86,16 +109,20 @@ APP="$tmp/macOS-trackpoint-scroll-$VERSION/macOS-trackpoint-scroll.app"
 codesign --verify --strict --verbose=2 \
   "$APP/Contents/Helpers/macOS-trackpoint-scroll-edge-pressure-helper"
 codesign --verify --strict --verbose=2 "$APP"
+codesign --display --verbose=4 "$APP" 2>&1 |
+  grep -E '^(Identifier|Authority|TeamIdentifier)='
 codesign --display --requirements - "$APP" 2>&1
 
 rm -rf "$tmp"
 ```
 
-For a stable signed build, the designated requirement should be based on the application identifier plus the Apple-issued signing identity, not only a build-specific `cdhash`.
+Read the `Authority=` lines before sharing the package. They are part of the recipient-visible signing identity.
+
+For a stable signed build, the designated requirement should be based on the application identifier plus the signing identity, not only a build-specific `cdhash`.
 
 ## Test the packaged installer
 
-Do not treat `make install-user` as sufficient release validation. Test the exact archive that would be published, ideally on a second Mac without Xcode.
+Do not treat `make install-user` as sufficient package validation. Test the exact archive that would be shared, ideally on a second Mac.
 
 After installation, verify:
 
@@ -130,7 +157,9 @@ The idle Dock test exercises the Karabiner virtual-HID heartbeat/reconnect lifec
 
 ## Publish
 
-Upload both files under `dist/` to the matching GitHub Release. If GitHub CLI is installed:
+Only use this section for an artifact you actually intend to distribute publicly. For a polished public Mac download, finish the Developer ID Application + notarization workflow first; do not upload an Apple Development-signed package merely because `make dist` succeeded.
+
+Upload both final files under `dist/` to the matching GitHub Release. If GitHub CLI is installed:
 
 ```sh
 VERSION="$(cat VERSION)"
@@ -150,4 +179,4 @@ For CI or investigation without a local certificate:
 MACOS_TRACKPOINT_ALLOW_ADHOC=1 make dist
 ```
 
-Expect privacy authorization to be build-specific. Do not use such an artifact to judge whether TCC grants survive an update.
+Expect privacy authorization to be build-specific. Do not use such an artifact to judge whether TCC grants survive an update, and do not publish it as the normal release.
