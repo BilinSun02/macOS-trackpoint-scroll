@@ -35,6 +35,7 @@ connect_helper(void)
 {
     struct sockaddr_un addr;
     char path[sizeof(addr.sun_path)];
+    int no_sigpipe = 1;
     int n;
 
     if (!g_enabled)
@@ -50,6 +51,20 @@ connect_helper(void)
     g_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (g_fd < 0)
         return false;
+
+    /*
+     * A helper restart or disconnect can race with a report write. Without
+     * SO_NOSIGPIPE, Darwin may terminate this process with SIGPIPE before the
+     * write returns EPIPE, bypassing the reconnect-and-retry path below.
+     */
+    if (setsockopt(g_fd, SOL_SOCKET, SO_NOSIGPIPE,
+                   &no_sigpipe, sizeof(no_sigpipe)) != 0) {
+        fprintf(stderr,
+                "trackpoint: cannot disable SIGPIPE on helper socket: %s\n",
+                strerror(errno));
+        disconnect_helper();
+        return false;
+    }
 
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
