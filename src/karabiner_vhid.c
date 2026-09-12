@@ -145,10 +145,21 @@ static void disconnect_socket(void) {
 
 int tpsc_vhid_initialize(void) {
     struct sockaddr_un addr;
+    int no_sigpipe=1;
     if (g_enabled && g_fd>=0 && g_ready) return 0;
     disconnect_socket();
     g_fd=socket(AF_UNIX,SOCK_STREAM,0);
     if (g_fd<0) { perror("trackpoint: virtual HID socket"); return -1; }
+    /*
+     * Karabiner may restart or drop this transport. Convert a broken peer into
+     * EPIPE so the reconnect path below runs instead of terminating the root
+     * helper with SIGPIPE.
+     */
+    if (setsockopt(g_fd,SOL_SOCKET,SO_NOSIGPIPE,
+                   &no_sigpipe,sizeof(no_sigpipe))!=0) {
+        fprintf(stderr,"trackpoint: cannot disable SIGPIPE on Karabiner virtual HID socket: %s\n",strerror(errno));
+        disconnect_socket(); return -1;
+    }
     memset(&addr,0,sizeof(addr));
     addr.sun_family=AF_UNIX;
     if (strlen(VHID_SOCKET)>=sizeof(addr.sun_path)) {
