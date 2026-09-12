@@ -85,6 +85,8 @@ Required behavior:
 
 The root bridge's Unix socket should remain user-owned mode `0600`, and the helper should verify the peer UID. Keep the protocol limited to pointer/button/wheel state.
 
+On Darwin, a write to a disconnected stream socket can terminate the writer with `SIGPIPE` before the call returns `EPIPE`. The user-daemon side of the helper socket must therefore suppress `SIGPIPE` (the implementation uses `SO_NOSIGPIPE`) so transport failure reaches normal reconnect/error handling instead of killing the daemon. Keep the user LaunchAgent alive as a second line of defense against an unexpected process exit, but do not use launchd restart policy as a substitute for making the IPC path signal-safe.
+
 If Karabiner-Elements is configured to **modify the physical TrackPoint itself**, it can compete with this daemon for exclusive ownership. The project needs Karabiner's virtual-HID service, not Karabiner interception of the same physical pointing collection. If exclusive open fails despite confirmed Input Monitoring permission, check Karabiner Devices settings and other HID-grabbing software.
 
 ## Treat macOS privacy gates separately
