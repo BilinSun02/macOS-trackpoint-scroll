@@ -4,7 +4,7 @@
 
 # false preserves the current/traditional wheel direction.
 # true reverses both axes for natural/content-following scrolling.
-natural_scroll=false
+natural_scroll=true
 
 # Multiplier applied after trackpoint-scroll-core reconstructs/transforms motion.
 scroll_scale=8.0
