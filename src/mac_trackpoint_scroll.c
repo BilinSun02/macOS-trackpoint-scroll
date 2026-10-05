@@ -1094,8 +1094,16 @@ cleanup(struct app *app)
                               kCFRunLoopCommonModes);
         CFRelease(app->event_tap_source);
     }
-    if (app->event_tap)
+    if (app->event_tap) {
+        /*
+         * A CGEventTap is a CFMachPort. Explicitly invalidate it before the
+         * final release so WindowServer drops the registration immediately
+         * even if teardown happens while this process remains alive.
+         */
+        CFMachPortInvalidate(app->event_tap);
         CFRelease(app->event_tap);
+        app->event_tap = NULL;
+    }
     if (app->edge_pressure_helper)
         (void)tpsc_edge_pressure_post_state(0, 0, 0);
     tpsc_pointer_rebound_set_enabled(false);
