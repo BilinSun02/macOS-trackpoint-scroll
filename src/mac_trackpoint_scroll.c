@@ -147,36 +147,15 @@ check_privacy_access(void)
      * macOS, CGEventTap/PostEvent authorization has its own CoreGraphics
      * request API and can diverge from AX trust.
      */
-    if (listen == kIOHIDAccessTypeUnknown) {
-        (void)IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
-        listen = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
-    }
-
+    /*
+     * This is a KeepAlive LaunchAgent, not an interactive permission wizard.
+     * Prompting here (especially through AXIsProcessTrustedWithOptions)
+     * floods the desktop if TCC does not recognize the grant and launchd
+     * restarts the process. Report status, never request it automatically.
+     * The installer documents how to grant permissions in System Settings.
+     */
     cg_post = CGPreflightPostEventAccess();
-    if (!cg_post)
-        cg_post = CGRequestPostEventAccess();
-
     ax_trusted = AXIsProcessTrusted();
-    if (!ax_trusted) {
-        const void *keys[] = { kAXTrustedCheckOptionPrompt };
-        const void *values[] = { kCFBooleanTrue };
-        CFDictionaryRef options = CFDictionaryCreate(
-            kCFAllocatorDefault,
-            keys, values, 1,
-            &kCFTypeDictionaryKeyCallBacks,
-            &kCFTypeDictionaryValueCallBacks);
-
-        if (options) {
-            /*
-             * This identifies/registers the actual running client with the
-             * Accessibility subsystem and asks macOS to prompt if needed.
-             * Prompting is asynchronous, so relaunch is still required after
-             * the user grants access.
-             */
-            ax_trusted = AXIsProcessTrustedWithOptions(options);
-            CFRelease(options);
-        }
-    }
 
     fprintf(stderr,
             "trackpoint: privacy input-monitoring=%s "
@@ -200,8 +179,8 @@ check_privacy_access(void)
     if (!ax_trusted) {
         fprintf(stderr,
                 "trackpoint: Accessibility trust is not currently active for "
-                "this running process; macOS was asked to register/prompt the "
-                "actual client. Restart after granting it.\n");
+                "this running process. Check the app's Accessibility "
+                "entry in System Settings and restart the agent after granting it.\n");
     }
 }
 
