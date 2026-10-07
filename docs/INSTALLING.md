@@ -72,7 +72,7 @@ Add or enable:
 ~/Applications/macOS-trackpoint-scroll.app
 ```
 
-Input Monitoring is needed for exclusive TrackPoint HID access. Accessibility/CoreGraphics PostEvent access is needed for the active event tap that replaces macOS's accelerated virtual-wheel magnitude with the exact scroll-core output. The daemon requests these permissions explicitly when it starts. On current macOS, the Accessibility list can appear enabled before the running process is actually trusted, so use the daemon log rather than the checkbox alone: a healthy grant reports `cg-post-event=granted` and `ax-trusted=yes`.
+Input Monitoring is needed for exclusive TrackPoint HID access. Accessibility/CoreGraphics PostEvent access is needed for the active event tap that replaces macOS's accelerated virtual-wheel magnitude with the exact scroll-core output. The KeepAlive daemon only **checks** TCC grants at startup; it does not open permission dialogs automatically. Grant them manually in System Settings and restart the agent. On current macOS, the Accessibility list can appear enabled before the running process is actually trusted, so check the daemon log: healthy grants report `cg-post-event=granted` and `ax-trusted=yes`. If the entry appears enabled but the daemon still logs denial, stop the LaunchAgent, remove the stale entry in Accessibility, re-add `~/Applications/macOS-trackpoint-scroll.app`, then start the LaunchAgent and inspect its logs. Never modify the TCC database directly.
 
 After changing either permission or accepting a newly presented prompt, restart the agent:
 
