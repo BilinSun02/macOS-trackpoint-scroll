@@ -142,7 +142,7 @@ Both are required for the seized architecture:
 - **Input Monitoring** permits the app to open/read the target HID device exclusively.
 - **Accessibility / CoreGraphics PostEvent access** permits active event taps and replacement Quartz events used by the scroll-rewrite path.
 
-The daemon requests these gates explicitly at startup and logs them separately as `input-monitoring`, `cg-post-event`, and `ax-trusted`. A manually enabled Accessibility entry is not sufficient evidence that the running LaunchAgent is trusted; use the runtime log as the authoritative check.
+The KeepAlive LaunchAgent **only checks** these permissions at startup; it never requests TCC dialogs automatically, because failed startup/restart cycles could otherwise produce endless prompts. Grant permissions manually in System Settings, then restart the agent. The daemon logs the results separately as `input-monitoring`, `cg-post-event`, and `ax-trusted`. A checked Accessibility entry alone does not prove that the running process is trusted; inspect the log if it continues to fail.
 
 After changing either permission:
 
