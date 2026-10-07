@@ -27,6 +27,9 @@ jobs:
             /bin/sh -n "$script"
           done
 
+      - name: Privacy preflight regression
+        run: python3 scripts/test-privacy-preflight.py
+
       - name: Config profile smoke tests
         shell: bash
         run: |
