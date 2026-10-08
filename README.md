@@ -142,7 +142,7 @@ Both are required for the seized architecture:
 - **Input Monitoring** permits the app to open/read the target HID device exclusively.
 - **Accessibility / CoreGraphics PostEvent access** permits active event taps and replacement Quartz events used by the scroll-rewrite path.
 
-The KeepAlive LaunchAgent **only checks** these permissions at startup; it never requests TCC dialogs automatically, because failed startup/restart cycles could otherwise produce endless prompts. Grant permissions manually in System Settings, then restart the agent. The daemon logs the results separately as `input-monitoring`, `cg-post-event`, and `ax-trusted`. A checked Accessibility entry alone does not prove that the running process is trusted; inspect the log if it continues to fail.
+The LaunchAgent checks permission without prompting. If authorization blocks startup, it exits successfully and remains stopped rather than repeatedly restarting; unexpected failures remain restartable. To re-register permission from the exact installed executable, stop the LaunchAgent and run `~/Applications/macOS-trackpoint-scroll.app/Contents/MacOS/macOS-trackpoint-scroll --request-permissions` **once**, grant the requested access, then bootstrap the agent again. A checked Accessibility entry is not proof of runtime trust; confirm `input-monitoring`, `cg-post-event`, `ax-trusted`, actual HID open, and active tap creation in its logs. See [docs/PRIVACY_LIFECYCLE.md](docs/PRIVACY_LIFECYCLE.md) for the complete contract and recovery sequence.
 
 After changing either permission:
 
