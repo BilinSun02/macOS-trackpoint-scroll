@@ -902,7 +902,7 @@ setup_event_tap(struct app *app)
             fprintf(stderr,
                     "trackpoint: cannot create active scroll rewrite tap; "
                     "grant Accessibility/PostEvent access and relaunch.\n");
-            return -1;
+            return -2;
         }
     } else {
         mask = CGEventMaskBit(kCGEventMouseMoved) |
@@ -922,7 +922,7 @@ setup_event_tap(struct app *app)
             fprintf(stderr,
                     "trackpoint: cannot create Quartz event tap. Grant Input "
                     "Monitoring/Accessibility permission and relaunch.\n");
-            return -1;
+            return -2;
         }
     }
 
@@ -1011,7 +1011,7 @@ setup_hid(struct app *app)
                     "trackpoint: diagnosis: Input Monitoring reports granted, "
                     "but exclusive HID open was still denied.\n");
         }
-        return -1;
+        return -2;
     }
 
     return 0;
@@ -1127,6 +1127,7 @@ main(int argc, char **argv)
     char config_path[1024];
     const char *selected_config;
     struct privacy_access privacy;
+    int setup_status;
 
     /*
      * This one-shot command runs from the installed, signed executable.
@@ -1179,9 +1180,10 @@ main(int argc, char **argv)
         cleanup(&app);
         return 1;
     }
-    if (setup_event_tap(&app) != 0) {
+    setup_status = setup_event_tap(&app);
+    if (setup_status != 0) {
         cleanup(&app);
-        if (!privacy.cg_post || !privacy.ax_trusted) {
+        if (setup_status == -2 && (!privacy.cg_post || !privacy.ax_trusted)) {
             fprintf(stderr,
                     "trackpoint: event tap blocked while TCC permission is "
                     "missing; exiting successfully so launchd does not "
@@ -1194,9 +1196,11 @@ main(int argc, char **argv)
         cleanup(&app);
         return 1;
     }
-    if (setup_hid(&app) != 0) {
+    setup_status = setup_hid(&app);
+    if (setup_status != 0) {
         cleanup(&app);
-        if (privacy.listen != kIOHIDAccessTypeGranted) {
+        if (setup_status == -2 &&
+            privacy.listen != kIOHIDAccessTypeGranted) {
             fprintf(stderr,
                     "trackpoint: HID open blocked while Input Monitoring is "
                     "missing; exiting successfully so launchd does not "
