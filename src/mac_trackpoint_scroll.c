@@ -134,54 +134,76 @@ hid_access_name(IOHIDAccessType access)
     }
 }
 
-static void
-check_privacy_access(void)
-{
-    IOHIDAccessType listen = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
+struct privacy_access {
+    IOHIDAccessType listen;
     bool cg_post;
     bool ax_trusted;
+};
+
+static struct privacy_access
+check_privacy_access(bool request)
+{
+    struct privacy_access access;
 
     /*
-     * Protected HID input and Quartz event posting are separate TCC gates.
-     * Do not label IOHIDRequestTypePostEvent as "Accessibility": on current
-     * macOS, CGEventTap/PostEvent authorization has its own CoreGraphics
-     * request API and can diverge from AX trust.
+     * Protected HID input, Quartz PostEvent and AX trust are distinct.
+     * Only the explicitly invoked --request-permissions mode may prompt.
+     * A background LaunchAgent must remain non-interactive even when
+     * launchd restarts it after another failure.
      */
-    /*
-     * This is a KeepAlive LaunchAgent, not an interactive permission wizard.
-     * Prompting here (especially through AXIsProcessTrustedWithOptions)
-     * floods the desktop if TCC does not recognize the grant and launchd
-     * restarts the process. Report status, never request it automatically.
-     * The installer documents how to grant permissions in System Settings.
-     */
-    cg_post = CGPreflightPostEventAccess();
-    ax_trusted = AXIsProcessTrusted();
+    access.listen = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
+    if (request && access.listen != kIOHIDAccessTypeGranted) {
+        (void)IOHIDRequestAccess(kIOHIDRequestTypeListenEvent);
+        access.listen = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent);
+    }
+
+    access.cg_post = CGPreflightPostEventAccess();
+    if (request && !access.cg_post) {
+        (void)CGRequestPostEventAccess();
+        access.cg_post = CGPreflightPostEventAccess();
+    }
+
+    access.ax_trusted = AXIsProcessTrusted();
+    if (request && !access.ax_trusted) {
+        const void *keys[] = { kAXTrustedCheckOptionPrompt };
+        const void *values[] = { kCFBooleanTrue };
+        CFDictionaryRef options = CFDictionaryCreate(
+            kCFAllocatorDefault,
+            keys, values, 1,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks);
+        if (options) {
+            (void)AXIsProcessTrustedWithOptions(options);
+            CFRelease(options);
+            access.ax_trusted = AXIsProcessTrusted();
+        }
+    }
 
     fprintf(stderr,
             "trackpoint: privacy input-monitoring=%s "
             "cg-post-event=%s ax-trusted=%s\n",
-            hid_access_name(listen),
-            cg_post ? "granted" : "denied",
-            ax_trusted ? "yes" : "no");
+            hid_access_name(access.listen),
+            access.cg_post ? "granted" : "denied",
+            access.ax_trusted ? "yes" : "no");
 
-    if (listen != kIOHIDAccessTypeGranted) {
+    if (access.listen != kIOHIDAccessTypeGranted) {
         fprintf(stderr,
                 "trackpoint: Input Monitoring is required to seize/read the "
-                "TrackPoint; grant it to this app and restart the agent.\n");
+                "TrackPoint; use --request-permissions and approve the "
+                "installed app in System Settings.\n");
     }
-
-    if (!cg_post) {
+    if (!access.cg_post) {
         fprintf(stderr,
                 "trackpoint: CoreGraphics PostEvent access is required for "
-                "the active scroll rewrite tap; macOS has not granted it.\n");
+                "the active scroll rewrite tap; use --request-permissions.\n");
     }
-
-    if (!ax_trusted) {
+    if (!access.ax_trusted) {
         fprintf(stderr,
                 "trackpoint: Accessibility trust is not currently active for "
-                "this running process. Check the app's Accessibility "
-                "entry in System Settings and restart the agent after granting it.\n");
+                "this process; use --request-permissions once, then "
+                "restart the agent after granting it.\n");
     }
+    return access;
 }
 
 static void
@@ -199,6 +221,7 @@ usage(const char *argv0)
             "  --seize                 exclusively claim the HID device\n"
             "  --edge-pressure-helper  route seized pointer/buttons/scroll through virtual HID\n"
             "  --verbose               print device/gesture diagnostics\n"
+            "  --request-permissions   explicitly register/request macOS privacy grants once\n"
             "  --help                  show this text\n",
             argv0);
 }
@@ -1103,6 +1126,21 @@ main(int argc, char **argv)
     struct macos_trackpoint_config config;
     char config_path[1024];
     const char *selected_config;
+    struct privacy_access privacy;
+
+    /*
+     * This one-shot command runs from the installed, signed executable.
+     * It must not touch HID, the event tap, or the root helper. TCC dialogs
+     * are asynchronous; a future ordinary LaunchAgent start verifies them.
+     */
+    if (argc == 2 && strcmp(argv[1], "--request-permissions") == 0) {
+        (void)check_privacy_access(true);
+        fprintf(stderr,
+                "trackpoint: permission registration attempted once. "
+                "Approve any macOS prompts and/or enable the installed app "
+                "in System Settings, then restart the LaunchAgent.\n");
+        return 0;
+    }
 
     (void)mach_timebase_info(&g_timebase);
 
@@ -1132,16 +1170,39 @@ main(int argc, char **argv)
         return 2;
     }
 
-    check_privacy_access();
+    privacy = check_privacy_access(false);
     tpsc_edge_pressure_client_set_enabled(app.edge_pressure_helper);
     if (tpsc_pointer_rebound_set_enabled(config.rebound_filter) != 0)
         return 1;
 
-    if (setup_core(&app, &config) != 0 ||
-        setup_event_tap(&app) != 0 ||
-        setup_tick_timer(&app) != 0 ||
-        setup_hid(&app) != 0) {
+    if (setup_core(&app, &config) != 0) {
         cleanup(&app);
+        return 1;
+    }
+    if (setup_event_tap(&app) != 0) {
+        cleanup(&app);
+        if (!privacy.cg_post || !privacy.ax_trusted) {
+            fprintf(stderr,
+                    "trackpoint: event tap blocked while TCC permission is "
+                    "missing; exiting successfully so launchd does not "
+                    "retry until authorization is repaired.\n");
+            return 0;
+        }
+        return 1;
+    }
+    if (setup_tick_timer(&app) != 0) {
+        cleanup(&app);
+        return 1;
+    }
+    if (setup_hid(&app) != 0) {
+        cleanup(&app);
+        if (privacy.listen != kIOHIDAccessTypeGranted) {
+            fprintf(stderr,
+                    "trackpoint: HID open blocked while Input Monitoring is "
+                    "missing; exiting successfully so launchd does not "
+                    "retry until authorization is repaired.\n");
+            return 0;
+        }
         return 1;
     }
 
