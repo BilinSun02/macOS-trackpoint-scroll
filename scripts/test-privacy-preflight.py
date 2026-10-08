@@ -78,8 +78,11 @@ assert main.index("return 0;", main.index("check_privacy_access(true)")) < main.
 
 # A missing permission should make launchd treat initialization as a
 # successful exit, preventing a permission-based restart loop.
-assert "if (!privacy.cg_post || !privacy.ax_trusted)" in main
-assert "if (privacy.listen != kIOHIDAccessTypeGranted)" in main
+assert "if (setup_status == -2 && (!privacy.cg_post || !privacy.ax_trusted))" in main
+assert "setup_status == -2 &&" in main
+assert "privacy.listen != kIOHIDAccessTypeGranted" in main
+assert "return -2;" in function_body("setup_event_tap(struct app *app)")
+assert "return -2;" in function_body("setup_hid(struct app *app)")
 for marker in (
     "event tap blocked while TCC permission is",
     "HID open blocked while Input Monitoring is",
