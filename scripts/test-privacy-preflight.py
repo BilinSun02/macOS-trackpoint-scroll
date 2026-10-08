@@ -42,17 +42,31 @@ for check in (
 ):
     assert check in preflight, f"missing TCC check: {check}"
 
-# Every request must be guarded by the explicit request argument.
-for request in (
-    "IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)",
-    "CGRequestPostEventAccess()",
-    "AXIsProcessTrustedWithOptions(options)",
+def conditional_block(condition: str) -> str:
+    marker = f"if ({condition}) {{"
+    assert preflight.count(marker) == 1, f"missing/ambiguous guard: {marker}"
+    opening = preflight.index(marker) + len(marker) - 1
+    depth = 1
+    for i in range(opening + 1, len(preflight)):
+        if preflight[i] == "{":
+            depth += 1
+        elif preflight[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return preflight[opening + 1 : i]
+    raise AssertionError(f"unclosed guard: {condition}")
+
+
+# Every request appears exactly once, nested within the corresponding
+# explicit request-mode conditional.
+for condition, request in (
+    ("request && access.listen != kIOHIDAccessTypeGranted",
+     "IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)"),
+    ("request && !access.cg_post", "CGRequestPostEventAccess()"),
+    ("request && !access.ax_trusted", "AXIsProcessTrustedWithOptions(options)"),
 ):
-    index = preflight.index(request)
-    guarded = preflight[:index]
-    assert guarded.rfind("if (request &&") > guarded.rfind("}", 0, index) - 600, (
-        f"TCC request not visibly guarded by explicit request mode: {request}"
-    )
+    assert preflight.count(request) == 1, f"unexpected request count: {request}"
+    assert request in conditional_block(condition), f"unguarded TCC request: {request}"
 
 assert "check_privacy_access(true)" in main
 assert "check_privacy_access(false)" in main
