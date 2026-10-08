@@ -19,7 +19,9 @@ jobs:
       - name: Build
         run: make
       - name: CLI smoke test
-        run: ./build/macOS-trackpoint-scroll --help
+        run: |
+          ./build/macOS-trackpoint-scroll --help
+          ./build/macOS-trackpoint-scroll --help 2>&1 | grep -q -- '--request-permissions'
       - name: Shell syntax smoke test
         shell: bash
         run: |
