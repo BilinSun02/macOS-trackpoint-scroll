@@ -105,7 +105,7 @@ MACOS_TRACKPOINT_CODESIGN_IDENTITY="<identity-hash>" make install-user
 - creates `~/Applications/macOS-trackpoint-scroll.app`;
 - signs the nested helper and app with the selected persistent identity;
 - prompts for `sudo` to install the narrow root virtual-HID bridge;
-- installs a per-user LaunchAgent with `KeepAlive` enabled;
+- installs a per-user LaunchAgent with restart-on-unexpected-failure (`KeepAlive` with `SuccessfulExit=false`), but no restart loop if authorization blocks startup;
 - installs the default config if one does not already exist;
 - starts the root helper and user daemon.
 
@@ -126,13 +126,24 @@ Add or enable:
 ~/Applications/macOS-trackpoint-scroll.app
 ```
 
-Then restart the user agent:
+The background daemon checks permission without initiating dialogs. To **request** authorization explicitly from the installed signed executable, first stop the agent:
 
 ```sh
-launchctl kickstart -k gui/$(id -u)/io.github.bilinsun02.macos-trackpoint-scroll
+LABEL=io.github.bilinsun02.macos-trackpoint-scroll
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+BIN="$HOME/Applications/macOS-trackpoint-scroll.app/Contents/MacOS/macOS-trackpoint-scroll"
+
+launchctl bootout "gui/$(id -u)" "$PLIST" 2>/dev/null || true
+"$BIN" --request-permissions
 ```
 
-The daemon requests the relevant permissions at startup and logs their effective state separately. Do not rely only on the System Settings checkbox.
+Approve any prompts or enable the installed app in the two Settings panes, then restart the stopped agent:
+
+```sh
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+```
+
+If authorization is still missing, the agent exits successfully rather than respawning every few seconds. Do not rely only on the Settings checkbox: inspect its runtime log for actual Input Monitoring, CoreGraphics PostEvent, AX trust, HID and event-tap results. See [PRIVACY_LIFECYCLE.md](PRIVACY_LIFECYCLE.md) for the acceptance contract and recovery details.
 
 ## 7. Verify the installed services
 
