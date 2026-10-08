@@ -126,7 +126,10 @@ cat >"$PLIST" <<EOF
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
     <key>ProcessType</key>
     <string>Interactive</string>
     <key>StandardOutPath</key>
@@ -157,8 +160,16 @@ echo "  add/enable: $APP_DIR"
 echo
 echo "Input Monitoring permits exclusive HID access; Accessibility/PostEvent access"
 echo "permits the active scroll rewrite tap used by the virtual-HID scroll path."
+echo "To request/register permissions once from the installed signed executable:"
+echo "  launchctl bootout gui/$UID_NUM '$PLIST' 2>/dev/null || true"
+echo "  '$INSTALL_BIN' --request-permissions"
+echo "  # Approve prompts / enable the installed app in System Settings"
+echo "  launchctl bootstrap gui/$UID_NUM '$PLIST'"
+echo
 echo "After changing either grant, restart with:"
 echo "  launchctl kickstart -k gui/$UID_NUM/$LABEL"
+echo "If permission is missing at startup, the agent exits successfully and"
+echo "stays stopped until you restart it; non-TCC failures remain restartable."
 echo
 echo "status: launchctl print gui/$UID_NUM/$LABEL"
 echo "logs:   tail -f '$LOG_DIR/stderr.log'"
